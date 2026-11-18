@@ -202,7 +202,7 @@ test("the list command sends a native button and reads the selected row ID", asy
   assert.match(sent.map((entry) => entry.text || "").join("\n"), /الملف الشخصي/);
 });
 
-test("XO native button replies use the clicking member and enforce turns", async (t) => {
+test("XO uses direct quick-reply buttons and enforces turns", async (t) => {
   const { service, sock, sent } = await setup(t);
   const start = {
     key: { id: "xo-start", remoteJid: GROUP, fromMe: true, participant: OWNER_LID, participantAlt: OWNER_PHONE },
@@ -213,27 +213,36 @@ test("XO native button replies use the clicking member and enforce turns", async
   const board = sent.find((entry) => entry.rawInteractive)?.rawInteractive
     ?.viewOnceMessage?.message?.interactiveMessage;
   assert.ok(board);
-  const button = JSON.parse(board.nativeFlowMessage.buttons[0].buttonParamsJson);
-  assert.equal(board.nativeFlowMessage.buttons[0].name, "single_select");
-  const rows = button.sections[0].rows;
-  assert.equal(rows.length, 10, "nine moves and cancel are offered in one valid list");
-  assert.match(rows[0].id, /^gw:xo:xo-/);
-  const gameId = rows[0].id.split(":")[2];
+  const buttons = board.nativeFlowMessage.buttons;
+  assert.equal(buttons.length, 10, "nine moves and cancel are offered directly");
+  assert.ok(buttons.every((button) => button.name === "quick_reply"));
+  const buttonIds = buttons.map((button) => JSON.parse(button.buttonParamsJson).id);
+  assert.match(buttonIds[0], /^gw:xo:xo-/);
+  assert.equal(JSON.parse(buttons[0].buttonParamsJson).display_text, "1");
+  const gameId = buttonIds[0].split(":")[2];
 
-  const click = (id, participant, selectedRowId) => ({
+  const click = (id, participant, selectedId) => ({
     key: { id, remoteJid: GROUP, fromMe: false, participant },
-    message: { listResponseMessage: { singleSelectReply: { selectedRowId } } },
+    message: {
+      interactiveResponseMessage: {
+        nativeFlowResponseMessage: {
+          name: "quick_reply",
+          paramsJson: JSON.stringify({ id: selectedId }),
+        },
+      },
+    },
   });
-  await handleGroupWorldMessage("web-owner", sock, click("xo-owner-move", OWNER_LID, rows[0].id), "notify");
+  await handleGroupWorldMessage("web-owner", sock, click("xo-owner-move", OWNER_LID, buttonIds[0]), "notify");
   const afterX = (await service.getGroup(GROUP)).games.find((game) => game.id === gameId);
   assert.equal(afterX.board[0], "X");
   const updatedBoard = sent.filter((entry) => entry.rawInteractive).at(-1)
     ?.rawInteractive?.viewOnceMessage?.message?.interactiveMessage;
-  const updatedRows = JSON.parse(updatedBoard.nativeFlowMessage.buttons[0].buttonParamsJson)
-    .sections[0].rows;
-  assert.equal(updatedRows.length, 9, "the used cell disappears from the next move list");
-  assert.equal(updatedRows.some((row) => row.id.endsWith(":move:0")), false);
+  const updatedButtons = updatedBoard.nativeFlowMessage.buttons;
+  const updatedIds = updatedButtons.map((button) => JSON.parse(button.buttonParamsJson).id);
+  assert.equal(updatedButtons.length, 9, "the used cell disappears and cancel remains");
+  assert.ok(updatedButtons.every((button) => button.name === "quick_reply"));
+  assert.equal(updatedIds.some((id) => id.endsWith(":move:0")), false);
   sent.length = 0;
-  await handleGroupWorldMessage("web-owner", sock, click("xo-out-of-turn", OWNER_LID, rows[1].id), "notify");
+  await handleGroupWorldMessage("web-owner", sock, click("xo-out-of-turn", OWNER_LID, buttonIds[1]), "notify");
   assert.match(sent.map((entry) => entry.text || "").join("\n"), /ليس دورك/);
 });

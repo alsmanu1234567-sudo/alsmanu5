@@ -430,20 +430,21 @@ async function sendXoBoard(sock, groupId, game) {
   let text = `🎮 مباراة X و O\nX: ${playerName(game.xPlayer)}\nO: ${playerName(game.oPlayer)}\n\n${xoBoardText(game)}\n\n`;
   const buttons = [];
   if (game.status === "active") {
-    text += `الدور الآن: ${game.turn === game.xPlayer ? "X" : "O"} — ${playerName(game.turn)}`;
-    const rows = game.board.flatMap((cell, index) => cell ? [] : [{
-      id: `gw:xo:${game.id}:move:${index}`,
-      title: `الخانة ${index + 1}`,
-      description: "ضع علامتك هنا",
-    }]);
-    rows.push({
+    text += `الدور الآن: ${game.turn === game.xPlayer ? "X" : "O"} — ${playerName(game.turn)}\nاضغط رقم الخانة مباشرة.`;
+    for (const [index, cell] of game.board.entries()) {
+      if (!cell) buttons.push({
+        id: `gw:xo:${game.id}:move:${index}`,
+        title: String(index + 1),
+      });
+    }
+    buttons.push({
       id: `gw:xo:${game.id}:cancel`,
-      title: "إلغاء المباراة",
-      description: "إنهاء هذه المباراة",
+      title: "إلغاء",
     });
-    return sendInteractiveList(sock, groupId, text, "اختيار الحركة", rows, {
-      sectionTitle: "الخانات المتاحة",
-      footer: "اختر خانة من القائمة؛ الحركة متاحة لصاحب الدور فقط.",
+    return sendNativeInteractive(sock, groupId, {
+      text,
+      buttons,
+      footer: "أزرار مباشرة — الحركة لصاحب الدور فقط.",
     });
   } else if (game.status === "draw") {
     text += "انتهت المباراة بالتعادل.";
