@@ -293220,7 +293220,7 @@ async function _connectCodSession(userId, waSock, waJid, cleanPhone, key, isFirs
           ? `\u2705 *\u062A\u0645 \u0627\u0644\u0631\u0628\u0637 \u0628\u0646\u062C\u0627\u062D!*\n\n\u{1F4F1} \u0627\u0644\u0631\u0642\u0645: \`${numFull}\`\n\u{1F50B} \u0627\u0644\u062D\u0627\u0644\u0629: \u0646\u0634\u0637\n\u{1F4B0} +500 \u0646\u0642\u0637\u0629 \u0645\u0643\u0627\u0641\u0623\u0629 \u0627\u0644\u0631\u0628\u0637!`
           : `\u{1F504} *\u062A\u0645\u062A \u0625\u0639\u0627\u062F\u0629 \u0627\u0644\u0627\u062A\u0635\u0627\u0644 \u0628\u0646\u062C\u0627\u062D!*\n\n\u{1F4F1} \u0627\u0644\u0631\u0642\u0645: \`${numFull}\`\n\u{1F50B} \u0627\u0644\u062D\u0627\u0644\u0629: \u0646\u0634\u0637`;
         try { await waSock.sendMessage(waJid, { text: "\u2705 *+" + cleanPhone + "* \u062A\u0645 \u0631\u0628\u0637\u0647 \u0628\u0646\u062C\u0627\u062D!" }); } catch {}
-        if (botRef) { try { await botRef.sendMessage(Number(userId), _connMsgCod, { parse_mode: "Markdown" }); } catch {} }
+        if (botRef) { try { init_text_editor();const custom=_isFirstEverCod && texts.link_success!==undefined;await botRef.sendMessage(Number(userId),custom?getText('link_success',{number:numFull}):_connMsgCod, custom?{}:{parse_mode:'Markdown'}); } catch {} }
         // HOTFIX-004: مزامنة جهات الاتصال والمجموعات في الخلفية لجلسة COD
         setTimeout(async () => {
           try {
@@ -293501,7 +293501,9 @@ async function _handleConnected(sock, userId, chatId, qrMsgId, isAutoRestore = f
     const _connMsg = _isFirstEver
       ? `\u2705 *\u062A\u0645 \u0627\u0644\u0631\u0628\u0637 \u0628\u0646\u062C\u0627\u062D!*\n\n\u{1F4F1} \u0627\u0644\u0631\u0642\u0645: \`${numberFull}\`\n\u{1F50B} \u0627\u0644\u062D\u0627\u0644\u0629: \u0646\u0634\u0637\n\u{1F4B0} +500 \u0646\u0642\u0637\u0629 \u0645\u0643\u0627\u0641\u0623\u0629 \u0627\u0644\u0631\u0628\u0637!\n\n\u064A\u0645\u0643\u0646\u0643 \u0627\u0644\u0622\u0646 \u0625\u062F\u0627\u0631\u0629 \u0627\u0644\u0631\u062F\u0648\u062F \u0627\u0644\u062A\u0644\u0642\u0627\u0626\u064A\u0629 \u0648\u0627\u0644\u0630\u0643\u0627\u0621 \u0627\u0644\u0627\u0635\u0637\u0646\u0627\u0639\u064A.`
       : `\u{1F504} *\u062A\u0645\u062A \u0625\u0639\u0627\u062F\u0629 \u0627\u0644\u0627\u062A\u0635\u0627\u0644 \u0628\u0646\u062C\u0627\u062D!*\n\n\u{1F4F1} \u0627\u0644\u0631\u0642\u0645: \`${numberFull}\`\n\u{1F50B} \u0627\u0644\u062D\u0627\u0644\u0629: \u0646\u0634\u0637`;
-    await botRef.sendMessage(chatId, _connMsg, { parse_mode: "Markdown" });
+    init_text_editor();
+    const custom=_isFirstEver && texts.link_success!==undefined;
+    await botRef.sendMessage(chatId, custom?getText('link_success',{number:numberFull}):_connMsg, custom?{}:{parse_mode:'Markdown'});
   }
   // [MULTI-NUM] نظّف سجل الجلسة المؤقتة بمفتاحها الصحيح وأفرغ علامة الربط الجاري
   sessions.delete(_effSessKey);
@@ -329681,9 +329683,12 @@ var developerConsole;
 // بدون أي خدمة خارجية: تعمل تلقائياً على أي استضافة
 try {
   const { createDeveloperWeb } = await import("./developer-web.mjs");
+  const { createAdminService } = await import("../services/developer/admin.mjs");
   init_text_editor();init_ai_manager();
   const { createSiteGenWebService } = await import("./sitegen-web.mjs");
-  developerConsole=createDeveloperWeb({developerId:DEVELOPER_ID,sites:createSiteGenWebService({developerId:DEVELOPER_ID}),github:{hasToken:()=>{init_github();return !!GITHUB_TOKEN},repos:()=>{init_github();return getAllRepos()},fetch:(...args)=>{init_github();return ghFetch(...args)}},ai:{key:getNvidiaKey,model:getUserSelectedModel},texts:{list:getTextKeys,get:getText,set:setText,reset:resetText},stats:()=>({users:inMemoryDB.users.size,workers:workerManager.getStats(),uptime:Math.floor(process.uptime()),memoryMB:Math.round(process.memoryUsage().rss/1048576)})});
+  init_channel_guard();
+  const adminService=createAdminService({getAllUsers,saveUser,addPoints,workerManager,inMemoryDB,tiers:TIER_MAX_NUMBERS,tierNames:TIER_NAMES,tierCosts:TIER_COSTS,getDynamicPrice,setDynamicPrice,channelGuard:{get:getGuardConfig,enabled:setGuardEnabled,add:addGuardChannel,remove:removeGuardChannel,message:setGuardMessage}});
+  developerConsole=createDeveloperWeb({developerId:DEVELOPER_ID,admin:adminService,sites:createSiteGenWebService({developerId:DEVELOPER_ID}),github:{hasToken:()=>{init_github();return !!GITHUB_TOKEN},repos:()=>{init_github();return getAllRepos()},fetch:(...args)=>{init_github();return ghFetch(...args)}},ai:{key:getNvidiaKey,model:getUserSelectedModel},texts:{list:getTextKeys,get:getText,set:setText,reset:resetText},stats:()=>({users:inMemoryDB.users.size,workers:workerManager.getStats(),uptime:Math.floor(process.uptime()),memoryMB:Math.round(process.memoryUsage().rss/1048576)})});
   developerConsole.register(app);
 } catch (e) {logger.warn({e}, "[DEVELOPER WEB] mount failed");}
 try {
