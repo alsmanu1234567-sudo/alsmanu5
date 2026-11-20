@@ -36,7 +36,7 @@ import {
   previewWebGroupAutoPost,
   publishWebGroupAutoPostNow,
 } from "./handlers/groups-handler.mjs";
-import {ludoEngine} from "../services/ludo-game.mjs";
+import {ludoEngine,loadLudoHtml} from "../services/ludo-game.mjs";
 import { getSharedState, joinShared, moveShared } from "../services/xo-shared.mjs";
 import { getMultiState, moveMulti, acceptMulti } from "../services/xo-multiplayer.mjs";
 import { registerGroupWorldWebApp } from "./group-world-web.mjs";
@@ -84,7 +84,7 @@ export function registerWebApp(app, { replyService, aiService } = {}) {
     res.end(HTML_PAGE.replace('<div class="hdr">', `<div class="hdr">\n  ${navigation}`));
   });
 
-  app.get("/ludo", (_req, res) => { res.setHeader("Content-Type", "text/html; charset=utf-8"); res.setHeader("Cache-Control", "no-store"); res.setHeader("Referrer-Policy", "no-referrer"); res.end(readFileSync(fileURLToPath(new URL("../public/ludo.html", import.meta.url)))); });
+  app.get("/ludo", async (_req, res) => { res.setHeader("Content-Type", "text/html; charset=utf-8"); res.setHeader("Cache-Control", "no-store"); res.setHeader("Referrer-Policy", "no-referrer"); try {res.end(await loadLudoHtml());} catch {res.status(500).end("تعذر تحميل اللعبة");} });
   // The embedded game may be hosted by WhatsApp at an opaque origin. Game/seat
   // capability tokens, not browser cookies, authorize these isolated endpoints.
   const ludoCors = (req,res,next) => {res.setHeader("Access-Control-Allow-Origin","*");res.setHeader("Access-Control-Allow-Methods","GET, POST, OPTIONS");res.setHeader("Access-Control-Allow-Headers","Content-Type, X-Ludo-Game, X-Ludo-Seat");res.setHeader("Cache-Control","no-store");if(req.method === "OPTIONS")return res.status(204).end();next();};
@@ -95,6 +95,7 @@ export function registerWebApp(app, { replyService, aiService } = {}) {
   app.post("/api/ludo/start",parseJson,ludoGuard(async(id,seat)=>ludoEngine.start(id,seat)));
   app.post("/api/ludo/roll",parseJson,ludoGuard(async(id,seat)=>ludoEngine.roll(id,seat)));
   app.post("/api/ludo/move",parseJson,ludoGuard(async(id,seat,req)=>ludoEngine.move(id,seat,req.body?.piece)));
+  app.post("/api/ludo/chat",parseJson,ludoGuard(async(id,seat,req)=>ludoEngine.chat(id,seat,req.body)));
 
   app.get("/xo-shared", (_req, res) => { res.setHeader("Content-Type", "text/html; charset=utf-8"); res.setHeader("Cache-Control", "no-store"); res.setHeader("Referrer-Policy", "no-referrer"); res.end(readFileSync(fileURLToPath(new URL("../public/xo-shared.html", import.meta.url)))); });
   const sharedGuard = fn => async(req,res) => { res.setHeader("Cache-Control","no-store"); try {res.json(await fn(req.headers["x-xo-game"],req.headers["x-xo-seat"],req));}catch(e){res.status(400).json({error:e?.message||"تعذر تنفيذ الحركة"});} };
