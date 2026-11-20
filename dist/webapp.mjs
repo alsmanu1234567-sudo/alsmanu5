@@ -64,7 +64,7 @@ function guard(handler) {
 }
 
 // ─── التسجيل في تطبيق Express ──────────────────────────────────────
-export function registerWebApp(app, { replyService, aiService, myMsgsService } = {}) {
+export function registerWebApp(app, { replyService, aiService, myMsgsService, siteGenService } = {}) {
   // JSON body parsing خاص بمسارات الويب آب فقط (لا يؤثر على بقية البوت)
   const parseJson = (req, res, next) => {
     if (req.headers["content-type"]?.includes("application/json") && !req.body) {
@@ -110,6 +110,12 @@ export function registerWebApp(app, { replyService, aiService, myMsgsService } =
   app.post("/api/xo-multi/move", parseJson, xoGuard(async (t,req) => moveMulti(t,req.body?.position)));
 
   app.get("/xo-ultra", (_req, res) => { res.setHeader("Content-Type", "text/html; charset=utf-8"); res.setHeader("Cache-Control", "no-store"); res.end(readFileSync(fileURLToPath(new URL("../public/xo-ultra.html", import.meta.url)))); });
+
+  const siteWeb = () => {if(!siteGenService)throw Error('الأداة غير جاهزة');return siteGenService;};
+  app.get('/sitegen-web.js',(_req,res)=>{res.setHeader('Content-Type','application/javascript; charset=utf-8');res.setHeader('Cache-Control','no-store');res.end(readFileSync(fileURLToPath(new URL('../public/sitegen-web.js',import.meta.url))));});
+  app.get('/api/sitegen/overview',guard(async uid=>siteWeb().overview(uid)));
+  app.post('/api/sitegen/start',parseJson,guard(async(uid,req)=>siteWeb().start(uid,req.body||{})));
+  app.post('/api/sitegen/stop',parseJson,guard(async(uid,req)=>siteWeb().stop(uid,req.body?.code)));
 
   const myMsgsWeb = () => {if(!myMsgsService)throw Error('قسم رسائلي غير جاهز');return myMsgsService;};
   app.get('/my-msgs-web.js',(_req,res)=>{res.setHeader('Content-Type','application/javascript; charset=utf-8');res.setHeader('Cache-Control','no-store');res.end(readFileSync(fileURLToPath(new URL('../public/my-msgs-web.js',import.meta.url))));});
@@ -353,6 +359,7 @@ const HTML_PAGE = `<!DOCTYPE html>
 <title>لوحة البوت</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <link rel="stylesheet" href="/auto-replies.css">
+<script defer src="/sitegen-web.js"></script>
 <script defer src="/my-msgs-web.js" onload="if (typeof TAB !== 'undefined' && TAB === 'mymsgs') render()"></script>
 <script defer src="/ai-web.js" onload="if (typeof TAB !== 'undefined' && TAB === 'ai') render()"></script>
 <script defer src="/auto-replies.js" onload="if (typeof TAB !== 'undefined' && TAB === 'replies') render()"></script>

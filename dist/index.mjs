@@ -301327,7 +301327,7 @@ async function sendMainMenuWithActive(bot2, chatId, userId) {
 }
 // [NEW-FEATURE-SITEGEN] أداة المطوّر: مواقع مؤقتة عامة — تشغيل/إيقاف/قائمة
 async function handleSiteGenCommand(bot2, chatId, text) {
-  const { startSite, stopSite, listSites, getTemplateList } = await import('./site-generator.mjs');
+  const { startSite, stopSite, listSites, getTemplateList, sitePublicBaseUrl } = await import('./site-generator.mjs');
   const parts = text.trim().split(/\s+/);
   const sub = parts[1];
 
@@ -301369,8 +301369,7 @@ async function handleSiteGenCommand(bot2, chatId, text) {
     const siteName = parts.slice(4).join(" ");
     if (!code || !templateId || !siteName) return usage();
     try {
-      const replitDomain = (process.env.REPLIT_DOMAINS || "").split(",")[0].trim();
-      const baseUrl = replitDomain ? `https://${replitDomain}` : `http://localhost:${process.env.PORT || 5000}`;
+      const baseUrl = sitePublicBaseUrl();
       const result = await startSite({ code, templateId, siteName, chatId, baseUrl });
       await bot2.sendMessage(
         chatId,
@@ -329704,6 +329703,7 @@ app.get("/healthz", (_req, res) => res.status(200).json({ ok: true, ts: Date.now
 // [NEW-FEATURE-SITEGEN] بوّابة المواقع ��لمؤقتة — تمرّر أي طلب على
 // /tool/<code>/... إلى البورت الداخلي الخاص بذلك الموقع
 app.all("/tool/:code", (req, res) => {
+  if (req.method === "GET" && !req.path.endsWith("/")) {const q=req.originalUrl.indexOf("?");const query=q>=0?req.originalUrl.slice(q):"";return res.redirect(302,req.path+"/"+query);}
   import("./site-generator.mjs").then(({ handleGatewayRequest }) => {
     handleGatewayRequest(req, res, req.params.code, "/");
   }).catch(() => res.status(500).send("site-generator error"));
@@ -329722,10 +329722,11 @@ try {
   const { createAutoReplyWebService } = await import("./auto-reply-web.mjs");
   const { createAiWebService } = await import("./ai-web.mjs");
   const { createMyMsgsWebService } = await import("./my-msgs-web.mjs");
+  const { createSiteGenWebService } = await import("./sitegen-web.mjs");
   init_my_msgs();
   init_ai_manager();
   const aiWebService = createAiWebService({getUser,saveUser,getUserNumbers,updateNumber,ai:ai_manager_exports,clearMemory:uid=>{let count=0;for(const key of [...conversationHistory.keys()]) if(key.startsWith(`${uid}_`) || [ `rule_${uid}`, `test_${uid}`, `webtest_${uid}` ].includes(key)){conversationHistory.delete(key);count++;}return count;}});
-  registerWebApp(app, { replyService: createAutoReplyWebService({getUserReplies,inMemoryDB,persistReplies,getReplyStat,getUserNumbers,updateNumber}), aiService:aiWebService, myMsgsService:createMyMsgsWebService({getUser,inMemoryDB}) });
+  registerWebApp(app, { replyService: createAutoReplyWebService({getUserReplies,inMemoryDB,persistReplies,getReplyStat,getUserNumbers,updateNumber}), aiService:aiWebService, myMsgsService:createMyMsgsWebService({getUser,inMemoryDB}), siteGenService:createSiteGenWebService({developerId:DEVELOPER_ID}) });
   // [SESSION-RESOLVER] ربط قسم التحويلات بمخزن جلسات البوت الرئيسي —
   // نفس الطريقة التي تجلب بها بقية أقسام البوت المجموعات (مفاتيح userId و userId_+رقم)
   const { setForwardSessionResolver, setForwardGroupsProvider } = await import("./forward.mjs");

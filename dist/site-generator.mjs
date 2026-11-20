@@ -11,11 +11,13 @@
 
 import http from "http";
 import { randomBytes } from "crypto";
+import {webappBaseUrl} from "./webapp-auth.mjs";
 
 let _bot = null;
 export function setSiteGeneratorBot(bot) { _bot = bot; }
 
 // كود التطوير = يُستخدم أيضاً كمعرّف عام في الرابط ولإيقاف الموقع لاحقاً
+const _starting = new Set();
 const _sites = new Map(); // code -> { code, templateId, siteName, chatId, port, server, createdAt }
 
 const PORT_RANGE_START = 4100;
@@ -65,9 +67,9 @@ function renderFormHtml(siteName, template) {
   const fieldsHtml = template.fields.map((f) => {
     const req = f.required ? "required" : "";
     if (f.type === "textarea") {
-      return `<label>${escapeHtml(f.label)}${f.required ? " *" : ""}<textarea name="${f.name}" ${req}></textarea></label>`;
+      return `<label>${escapeHtml(f.label)}${f.required ? " *" : ""}<textarea name="${f.name}" maxlength="800" ${req}></textarea></label>`;
     }
-    return `<label>${escapeHtml(f.label)}${f.required ? " *" : ""}<input type="text" name="${f.name}" ${req} /></label>`;
+    return `<label>${escapeHtml(f.label)}${f.required ? " *" : ""}<input type="text" name="${f.name}" maxlength="800" ${req} /></label>`;
   }).join("\n");
 
   return `<!DOCTYPE html>
@@ -133,11 +135,11 @@ function renderFormHtml(siteName, template) {
 
 function formatSubmissionMessage(site, data) {
   const template = TEMPLATES[site.templateId];
-  const lines = [`📩 *بيانات جديدة من موقع:* ${site.siteName}`, `🔑 الكود: \`${site.code}\``, ""];
+  const lines = [`📩 بيانات جديدة من موقع: ${site.siteName}`, `🔑 الكود: ${site.code}`, ""];
   for (const f of template.fields) {
     const v = data[f.name];
     if (v !== undefined && v !== null && String(v).trim() !== "") {
-      lines.push(`*${f.label}:* ${v}`);
+      lines.push(`${f.label}: ${v}`);
     }
   }
   return lines.join("\n");
@@ -152,7 +154,7 @@ function listenOnFreePort(server, startPort, endPort) {
         reject(new Error("لا يوجد بورت متاح ضمن النطاق"));
         return;
       }
-      server.once("error", (err) => {
+      server.once("error", function onListenError(err) {
         if (err.code === "EADDRINUSE") {
           port++;
           tryNext();
@@ -189,6 +191,14 @@ function readJsonBody(req) {
 export function isCodeActive(code) { return _sites.has(code); }
 export function listSites() { return Array.from(_sites.values()); }
 
+export function sitePublicBaseUrl() {
+  const replit = (process.env.REPLIT_DOMAINS || '').split(',')[0].trim();
+  const base = webappBaseUrl() || (replit ? `https://${replit}` : '');
+  let url; try {url = new URL(base)} catch {throw new Error('لا يوجد رابط عام للموقع؛ اضبط WEBAPP_URL على عنوان HTTPS العام للبوت');}
+  if (!['http:','https:'].includes(url.protocol) || ['localhost','127.0.0.1','::1','[::1]','0.0.0.0'].includes(url.hostname)) throw new Error('اضبط WEBAPP_URL على عنوان عام يمكن للزوار الوصول إليه');
+  return base.replace(/\/+$/, '');
+}
+
 export function generateRandomCode() {
   return randomBytes(3).toString("hex");
 }
@@ -197,10 +207,15 @@ export async function startSite({ code, templateId, siteName, chatId, baseUrl })
   if (!code || !/^[a-zA-Z0-9_-]{2,32}$/.test(code)) {
     throw new Error("الكود غير صالح — استخدم أحرف/أرقام فقط (2-32 حرفاً)");
   }
-  const template = TEMPLATES[templateId];
+  const template = Object.hasOwn(TEMPLATES, templateId) ? TEMPLATES[templateId] : null;
   if (!template) throw new Error("نوع الموقع غير معروف");
-  if (_sites.has(code)) throw new Error(`الكود \`${code}\` مستخدم بالفعل — أوقفه أولاً أو اختر كوداً آخر`);
+  if (_sites.has(code) || _starting.has(code)) throw new Error(`الكود \`${code}\` مستخدم بالفعل — أوقفه أولاً أو اختر كوداً آخر`);
 
+  siteName = String(siteName || '').trim();
+  if (!siteName || siteName.length > 100) throw new Error('اسم الموقع مطلوب وبحد أقصى 100 حرف');
+  let parsedBase; try {parsedBase = new URL(baseUrl)} catch {throw new Error('رابط الموقع العام غير صالح')}
+  if (!['http:', 'https:'].includes(parsedBase.protocol)) throw new Error('رابط الموقع العام غير صالح');
+  _starting.add(code);
   const server = http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url, "http://internal");
@@ -210,11 +225,22 @@ export async function startSite({ code, templateId, siteName, chatId, baseUrl })
         return;
       }
       if (req.method === "POST" && url.pathname === "/submit") {
-        const data = await readJsonBody(req);
-        const site = _sites.get(code);
-        if (site && _bot) {
-          await _bot.sendMessage(site.chatId, formatSubmissionMessage(site, data), { parse_mode: "Markdown" }).catch(() => {});
+        const raw = await readJsonBody(req);
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {res.writeHead(400);res.end('بيانات غير صالحة');return;}
+        const data = {};
+        for (const f of template.fields) {
+          if (raw[f.name] != null && typeof raw[f.name] !== 'string') {res.writeHead(400);res.end('بيانات غير صالحة');return;}
+          const value = String(raw[f.name] || '').trim();
+          if ((f.required && !value) || value.length > 800) {res.writeHead(400);res.end('تحقق من الحقول المطلوبة');return;}
+          data[f.name] = value;
         }
+        const site = _sites.get(code);
+        if (!site || !_bot || typeof _bot.sendMessage !== 'function') {res.writeHead(503);res.end('خدمة استلام البيانات غير متاحة');return;}
+        const now = Date.now();site.submissions = (site.submissions || []).filter(ts=>now-ts<60000);
+        if (site.submissions.length>=30) {res.writeHead(429);res.end('تم الوصول لحد الإرسال، حاول لاحقاً');return;}
+        site.submissions.push(now);
+        try {await _bot.sendMessage(site.chatId, formatSubmissionMessage(site, data));}
+        catch {res.writeHead(502);res.end('تعذر تسليم البيانات');return;}
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ ok: true }));
         return;
@@ -227,9 +253,12 @@ export async function startSite({ code, templateId, siteName, chatId, baseUrl })
     }
   });
 
-  const port = await listenOnFreePort(server, PORT_RANGE_START, PORT_RANGE_END);
+  let port;
+  try {port = await listenOnFreePort(server, PORT_RANGE_START, PORT_RANGE_END);}
+  catch (error) {_starting.delete(code);try{server.close()}catch{}throw error;}
   const site = { code, templateId, siteName, chatId, port, server, createdAt: Date.now() };
   _sites.set(code, site);
+  _starting.delete(code);
 
   const publicUrl = `${baseUrl.replace(/\/$/, "")}/tool/${code}/`;
   return { code, port, publicUrl, templateLabel: template.label };
@@ -252,13 +281,19 @@ export function handleGatewayRequest(req, res, code, subPath) {
     res.status ? res.status(404).send("هذا الموقع غير متاح — ربما تم إيقافه") : (res.writeHead(404), res.end("غير متاح"));
     return;
   }
+  // Express JSON middleware may already have consumed the request stream.
+  // Forward a re-encoded body with the correct length instead of piping an empty stream.
+  const parsed = req.body !== undefined && req.readableEnded;
+  const body = parsed && req.body != null ? (String(req.headers['content-type'] || '').includes('application/x-www-form-urlencoded') ? new URLSearchParams(req.body).toString() : JSON.stringify(req.body)) : '';
+  const headers = {...req.headers};
+  if (parsed) {delete headers['transfer-encoding'];delete headers['content-encoding'];headers['content-length'] = Buffer.byteLength(body);}
   const proxyReq = http.request(
     {
       host: "127.0.0.1",
       port: site.port,
       path: "/" + (subPath || "").replace(/^\/+/, ""),
       method: req.method,
-      headers: req.headers,
+      headers,
     },
     (proxyRes) => {
       res.writeHead(proxyRes.statusCode || 502, proxyRes.headers);
@@ -269,5 +304,6 @@ export function handleGatewayRequest(req, res, code, subPath) {
     if (!res.headersSent) res.writeHead(502, { "Content-Type": "text/plain; charset=utf-8" });
     res.end("تعذر الوصول للموقع");
   });
-  req.pipe(proxyReq);
+  if (parsed) proxyReq.end(body);
+  else req.pipe(proxyReq);
 }
