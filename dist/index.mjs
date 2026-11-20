@@ -329687,7 +329687,7 @@ try {
   init_text_editor();init_ai_manager();
   const { createSiteGenWebService } = await import("./sitegen-web.mjs");
   init_channel_guard();
-  const adminService=createAdminService({getAllUsers,saveUser,addPoints,workerManager,inMemoryDB,tiers:TIER_MAX_NUMBERS,tierNames:TIER_NAMES,tierCosts:TIER_COSTS,getDynamicPrice,setDynamicPrice,channelGuard:{get:getGuardConfig,enabled:setGuardEnabled,add:addGuardChannel,remove:removeGuardChannel,message:setGuardMessage}});
+  const adminService=createAdminService({getAllUsers,saveUser,addPoints,workerManager,inMemoryDB,tiers:TIER_MAX_NUMBERS,tierNames:TIER_NAMES,tierCosts:TIER_COSTS,getDynamicPrice,setDynamicPrice,getBot:()=>bot,channelGuard:{get:getGuardConfig,enabled:setGuardEnabled,add:addGuardChannel,remove:removeGuardChannel,message:setGuardMessage}});
   developerConsole=createDeveloperWeb({developerId:DEVELOPER_ID,admin:adminService,sites:createSiteGenWebService({developerId:DEVELOPER_ID}),github:{hasToken:()=>{init_github();return !!GITHUB_TOKEN},repos:()=>{init_github();return getAllRepos()},fetch:(...args)=>{init_github();return ghFetch(...args)}},ai:{key:getNvidiaKey,model:getUserSelectedModel},texts:{list:getTextKeys,get:getText,set:setText,reset:resetText},stats:()=>({users:inMemoryDB.users.size,workers:workerManager.getStats(),uptime:Math.floor(process.uptime()),memoryMB:Math.round(process.memoryUsage().rss/1048576)})});
   developerConsole.register(app);
 } catch (e) {logger.warn({e}, "[DEVELOPER WEB] mount failed");}

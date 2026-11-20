@@ -31,6 +31,8 @@ export function createDeveloperWeb({developerId,github,ai,texts,stats,sites,admi
   app.post('/api/developer/economy',auth,guarded(async req=>adminRequired().price(req.body?.key,req.body?.price)));
   app.get('/api/developer/guard',auth,guarded(async()=>adminRequired().guard()));
   app.post('/api/developer/guard',auth,guarded(async req=>adminRequired().setGuard(req.body||{})));
+  app.get('/api/developer/broadcast',auth,guarded(async()=>adminRequired().broadcastStatus()));
+  app.post('/api/developer/broadcast',auth,guarded(async req=>adminRequired().startBroadcast(req.body||{})));
   app.get('/api/developer/sites',auth,guarded(async()=>{if(!sites)throw Error('أداة المواقع غير متاحة');return sites.overview(String(developerId))}));
   app.post('/api/developer/sites/start',auth,guarded(async req=>{if(!sites)throw Error('أداة المواقع غير متاحة');return sites.start(String(developerId),req.body||{})}));
   app.post('/api/developer/sites/stop',auth,guarded(async req=>{if(!sites)throw Error('أداة المواقع غير متاحة');return sites.stop(String(developerId),req.body?.code)}));
