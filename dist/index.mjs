@@ -1,3 +1,4 @@
+import { isGeneratedAutoReply, protectAutoReplySocket, matchesReplyTarget } from '../services/auto-reply-routing.mjs';
 // PATCH_MASTER_FIX_APPLIED
 // PATCH_FIXES_V3_APPLIED
 // RUNTIME_BAILEYS_EXTERNAL_PATCH_V3
@@ -124783,6 +124784,7 @@ function replyTargetKeyboard() {
       [{ text: "\u{1F30D} \u0627\u0644\u062C\u0645\u064A\u0639", callback_data: "target_all" }],
       [{ text: "\u{1F464} \u0634\u062E\u0635 \u0645\u062D\u062F\u062F (\u0623\u062F\u062E\u0644 \u0631\u0642\u0645\u0647)", callback_data: "target_specific" }],
       [{ text: "\u{1F4CB} \u0639\u062F\u0629 \u0623\u0634\u062E\u0627\u0635 (\u0623\u0631\u0642\u0627\u0645 \u0645\u062A\u0639\u062F\u062F\u0629)", callback_data: "target_multiple" }],
+      [{ text: "🔄 رسائلي أنا (الرد في نفس المحادثة)", callback_data: "target_self" }],
       backAndHome()
     ]
   };
@@ -293888,6 +293890,179 @@ function registerMessageHandler(sock, userId) {
       if (msgTs > 0 && msgTs < BOT_START_TS - 60) return; // [DISPATCH-FIX]
       const isGroup = jid.endsWith("@g.us");
       const cacheKey = `${userId}:${jid}`;
+      async function runAutoReplies(baseSock, msg, text, senderName) {
+        if (!text || isGeneratedAutoReply(msg.key?.id)) return;
+        const sock = msg.key?.fromMe ? protectAutoReplySocket(baseSock) : baseSock;
+        const senderJid = msg.key?.fromMe ? (baseSock.user?.id || jid) : (msg.key?.participant || jid);
+        const rawPhone = (baseSock.user?.id || "").split(":")[0].split("@")[0].replace(/[^0-9]/g, "");
+        const _findNumBySock = (arr) => arr.find(n => (n.number || "").replace(/[^0-9]/g, "") === rawPhone) || arr.find(n => n.status === "active");
+      const replies = getUserReplies(userId);
+      for (const reply of replies) {
+        if (!reply.isActive || !matchesReplyTarget(reply, msg)) continue;
+        if (reply.scope === "private" && isGroup) continue;
+        if ((reply.scope === "groups" || reply.scope === "group") && !isGroup) continue;
+        let matched = false;
+        const trigger = reply.caseSensitive ? reply.trigger : reply.trigger.toLowerCase();
+        const msgText = reply.caseSensitive ? text : text.toLowerCase();
+        switch (reply.triggerType) {
+          case "exact":
+            matched = msgText === trigger;
+            break;
+          case "contains":
+            matched = msgText.includes(trigger);
+            break;
+          case "starts":
+            matched = msgText.startsWith(trigger);
+            break;
+          case "ends":
+            matched = msgText.endsWith(trigger);
+            break;
+          case "regex":
+            try {
+              matched = new RegExp(reply.trigger, reply.caseSensitive ? "" : "i").test(text);
+            } catch {
+            }
+            break;
+          default:
+            matched = msgText === trigger;
+        }
+        if (!matched) continue;
+        incrementReplyStat(userId, reply.id);
+        const numCfg = _findNumBySock(getUserNumbers(userId));
+        if (numCfg?.randomDelayEnabled) {
+          const delay2 = 1e3 + Math.floor(Math.random() * 4e3);
+          await new Promise((r) => setTimeout(r, delay2));
+        }
+        const replyDailyKey = `reply_daily_${reply.id}_${(/* @__PURE__ */ new Date()).toDateString()}`;
+        const dailyCount = inMemoryDB[replyDailyKey] || 0;
+        const dailyLimit = reply.dailyLimit || 0;
+        if (dailyLimit > 0 && dailyCount >= dailyLimit) continue;
+        if (dailyLimit > 0) inMemoryDB[replyDailyKey] = dailyCount + 1;
+
+        // حد أقصى لكل شخص كل 8 ساعات
+        const perUserLim = reply.perUserLimit || 0;
+        if (perUserLim > 0) {
+          const puKey = `reply_pu_${reply.id}_${senderJid}`;
+          const puData = inMemoryDB[puKey] || { count: 0, resetAt: 0 };
+          const now8h = Date.now();
+          if (now8h > puData.resetAt) { puData.count = 0; puData.resetAt = now8h + 8 * 60 * 60 * 1000; }
+          if (puData.count >= perUserLim) continue;
+          puData.count++;
+          inMemoryDB[puKey] = puData;
+        }
+        if (reply.scheduleFrom && reply.scheduleTo) {
+          const now = /* @__PURE__ */ new Date();
+          const [fh, fm] = reply.scheduleFrom.split(":").map(Number);
+          const [th, tm] = reply.scheduleTo.split(":").map(Number);
+          const nowMins = now.getHours() * 60 + now.getMinutes();
+          const fromMins = fh * 60 + fm;
+          const toMins = th * 60 + tm;
+          if (nowMins < fromMins || nowMins > toMins) continue;
+        }
+        if (reply.langFilter) {
+          const isArabic = /[\u0600-\u06FF]/.test(text);
+          if (reply.langFilter === "arabic" && !isArabic) continue;
+          if (reply.langFilter === "english" && isArabic) continue;
+        }
+        if (reply.replyType === "xo") {
+          try {
+            const { startAutoReplyXoGame } = await import("../services/auto-reply-xo.mjs");
+            const playerId = msg.key?.participant || msg.key?.participantAlt || jid;
+            await startAutoReplyXoGame(sock, jid, playerId, senderName, userId);
+          } catch (err) {
+            logger.error({ err }, "XO auto-reply start failed");
+            try {
+              await sock.sendMessage(jid, { text: "تعذّر بدء لعبة X و O. حاول مرة أخرى لاحقًا." });
+            } catch {}
+          }
+          break;
+        }
+        if (reply.replyType === "ai") {
+          try {
+            const { getAiReplyForRule: getAiReplyForRule2 } = await Promise.resolve().then(() => (init_ai_manager(), ai_manager_exports));
+            const aiPromptForRule = reply.replyContent === "__ai_default__" ? "" : reply.replyContent || "";
+            const aiText = await getAiReplyForRule2(userId, aiPromptForRule, text);
+            if (aiText) {
+              await sock.sendMessage(jid, { text: aiText });
+            }
+          } catch (err) {
+            logger.error({ err }, "AI auto-reply error");
+          }
+          break;
+        }
+        if (reply.replyType === "reaction") {
+          try {
+            const emoji = reply.replyContent || "\u{1F44D}";
+            await sock.sendMessage(jid, { react: { text: emoji, key: msg.key } });
+          } catch (err) {
+            logger.error({ err }, "Reaction reply error");
+          }
+          break;
+        }
+        if (reply.replyType === "morphing" && reply.morphEdits?.length) {
+          try {
+            const sent = await sock.sendMessage(jid, { text: reply.replyContent || "" });
+            const sentKey = sent?.key;
+            if (sentKey) {
+              for (const edit of reply.morphEdits) {
+                await new Promise((r) => setTimeout(r, (edit.delaySeconds || 1) * 1e3));
+                await sock.sendMessage(jid, {
+                  edit: sentKey,
+                  text: edit.text
+                });
+              }
+            }
+          } catch (err) {
+            logger.error({ err }, "Morphing reply error");
+          }
+          break;
+        }
+        if (reply.replyType === "rotating" && reply.rotatingMessages?.length) {
+          const msgs = reply.rotatingMessages;
+          const rotKey = `rot_idx_${reply.id}`;
+          const idx = (inMemoryDB[rotKey] || 0) % msgs.length;
+          inMemoryDB[rotKey] = idx + 1;
+          try {
+            await sock.sendMessage(jid, { text: msgs[idx] });
+          } catch (err) {
+            logger.error({ err }, "Rotating reply error");
+          }
+          break;
+        }
+        // ── وسائط محفوظة محلياً (صورة/فيديو/ملف/صوت) ─────────��────────────
+        if ((reply.replyType === "image" || reply.replyType === "video" ||
+             reply.replyType === "document" || reply.replyType === "audio") &&
+            (reply.replyContent || "").startsWith("local:")) {
+          const localPath = reply.replyContent.slice(6); // بعد "local:"
+          try {
+            const { readFile: _rfAR } = await import("node:fs/promises");
+            const fileBuf = await _rfAR(localPath);
+            if (reply.replyType === "image") {
+              await sock.sendMessage(jid, { image: fileBuf, caption: "" });
+            } else if (reply.replyType === "video") {
+              await sock.sendMessage(jid, { video: fileBuf, caption: "" });
+            } else if (reply.replyType === "document") {
+              const fn = localPath.split("/").pop() || "file";
+              await sock.sendMessage(jid, { document: fileBuf, fileName: fn, mimetype: "application/octet-stream" });
+            } else if (reply.replyType === "audio") {
+              const audioMime = reply._audioMime || "audio/mpeg";
+              await sock.sendMessage(jid, { audio: fileBuf, mimetype: audioMime });
+            }
+          } catch (err) {
+            logger.error({ err, localPath }, "Local media auto-reply error");
+            await sock.sendMessage(jid, { text: "❌ تعذّر إرسال الملف المرفق" });
+          }
+          break;
+        }
+        const responseText = (reply.replyContent || "").replace(/{name}/g, senderName).replace(/{number}/g, jid.split("@")[0]).replace(/{group}/g, isGroup ? jid : "").replace(/{time}/g, (/* @__PURE__ */ new Date()).toLocaleTimeString("ar")).replace(/{date}/g, (/* @__PURE__ */ new Date()).toLocaleDateString("ar")).replace(/{random}/g, String(Math.floor(Math.random() * 1e3))).replace(/{count}/g, "1");
+        try {
+          await sock.sendMessage(jid, { text: responseText });
+        } catch (err) {
+          logger.error({ err }, "Error sending WhatsApp reply");
+        }
+        break;
+      }
+      }
       // تتبع جميع الرسائل الصادرة تلقائياً (بما ��يها ردود البوت)
       if (msg.key.fromMe && msg.key.id) {
         // cacheSentMsg الآن تتضمن O(1) dedup داخلياً
@@ -293920,6 +294095,7 @@ function registerMessageHandler(sock, userId) {
         const user2 = getUser(userId);
         const ms = user2.msgSettings || {};
         const text2 = extractText(msg);
+        await runAutoReplies(sock, msg, text2, msg.pushName || sock.user?.name || "أنا");
         logger.info({ jid, text: text2 }, "[fromMe] message received"); // [DISPATCH-FIX]
         if (msg.key?.id) cacheSentMsg(cacheKey, msg.key);
         const ppMatch = text2.match(/^\+\+(\d+)/);
@@ -297854,172 +298030,7 @@ ${senderName}: ${text}` });
           }
         }
       }
-      const replies = getUserReplies(userId);
-      for (const reply of replies) {
-        if (!reply.isActive) return; // [DISPATCH-FIX]
-        if (reply.scope === "private" && isGroup) return; // [DISPATCH-FIX]
-        if (reply.scope === "groups" && !isGroup) return; // [DISPATCH-FIX]
-        let matched = false;
-        const trigger = reply.caseSensitive ? reply.trigger : reply.trigger.toLowerCase();
-        const msgText = reply.caseSensitive ? text : text.toLowerCase();
-        switch (reply.triggerType) {
-          case "exact":
-            matched = msgText === trigger;
-            break;
-          case "contains":
-            matched = msgText.includes(trigger);
-            break;
-          case "starts":
-            matched = msgText.startsWith(trigger);
-            break;
-          case "ends":
-            matched = msgText.endsWith(trigger);
-            break;
-          case "regex":
-            try {
-              matched = new RegExp(reply.trigger, reply.caseSensitive ? "" : "i").test(text);
-            } catch {
-            }
-            break;
-          default:
-            matched = msgText === trigger;
-        }
-        if (!matched) return; // [DISPATCH-FIX]
-        incrementReplyStat(userId, reply.id);
-        const numCfg = _findNumBySock(getUserNumbers(userId));
-        if (numCfg?.randomDelayEnabled) {
-          const delay2 = 1e3 + Math.floor(Math.random() * 4e3);
-          await new Promise((r) => setTimeout(r, delay2));
-        }
-        const replyDailyKey = `reply_daily_${reply.id}_${(/* @__PURE__ */ new Date()).toDateString()}`;
-        const dailyCount = inMemoryDB[replyDailyKey] || 0;
-        const dailyLimit = reply.dailyLimit || 0;
-        if (dailyLimit > 0 && dailyCount >= dailyLimit) return; // [DISPATCH-FIX]
-        if (dailyLimit > 0) inMemoryDB[replyDailyKey] = dailyCount + 1;
-
-        // حد أقصى لكل شخص كل 8 ساعات
-        const perUserLim = reply.perUserLimit || 0;
-        if (perUserLim > 0) {
-          const puKey = `reply_pu_${reply.id}_${senderJid}`;
-          const puData = inMemoryDB[puKey] || { count: 0, resetAt: 0 };
-          const now8h = Date.now();
-          if (now8h > puData.resetAt) { puData.count = 0; puData.resetAt = now8h + 8 * 60 * 60 * 1000; }
-          if (puData.count >= perUserLim) return; // [DISPATCH-FIX]
-          puData.count++;
-          inMemoryDB[puKey] = puData;
-        }
-        if (reply.scheduleFrom && reply.scheduleTo) {
-          const now = /* @__PURE__ */ new Date();
-          const [fh, fm] = reply.scheduleFrom.split(":").map(Number);
-          const [th, tm] = reply.scheduleTo.split(":").map(Number);
-          const nowMins = now.getHours() * 60 + now.getMinutes();
-          const fromMins = fh * 60 + fm;
-          const toMins = th * 60 + tm;
-          if (nowMins < fromMins || nowMins > toMins) return; // [DISPATCH-FIX]
-        }
-        if (reply.langFilter) {
-          const isArabic = /[\u0600-\u06FF]/.test(text);
-          if (reply.langFilter === "arabic" && !isArabic) return; // [DISPATCH-FIX]
-          if (reply.langFilter === "english" && isArabic) return; // [DISPATCH-FIX]
-        }
-        if (reply.replyType === "xo") {
-          try {
-            const { startAutoReplyXoGame } = await import("../services/auto-reply-xo.mjs");
-            const playerId = msg.key?.participant || msg.key?.participantAlt || jid;
-            await startAutoReplyXoGame(sock, jid, playerId, senderName, userId);
-          } catch (err) {
-            logger.error({ err }, "XO auto-reply start failed");
-            try {
-              await sock.sendMessage(jid, { text: "تعذّر بدء لعبة X و O. حاول مرة أخرى لاحقًا." });
-            } catch {}
-          }
-          break;
-        }
-        if (reply.replyType === "ai") {
-          try {
-            const { getAiReplyForRule: getAiReplyForRule2 } = await Promise.resolve().then(() => (init_ai_manager(), ai_manager_exports));
-            const aiPromptForRule = reply.replyContent === "__ai_default__" ? "" : reply.replyContent || "";
-            const aiText = await getAiReplyForRule2(userId, aiPromptForRule, text);
-            if (aiText) {
-              await sock.sendMessage(jid, { text: aiText });
-            }
-          } catch (err) {
-            logger.error({ err }, "AI auto-reply error");
-          }
-          break;
-        }
-        if (reply.replyType === "reaction") {
-          try {
-            const emoji = reply.replyContent || "\u{1F44D}";
-            await sock.sendMessage(jid, { react: { text: emoji, key: msg.key } });
-          } catch (err) {
-            logger.error({ err }, "Reaction reply error");
-          }
-          break;
-        }
-        if (reply.replyType === "morphing" && reply.morphEdits?.length) {
-          try {
-            const sent = await sock.sendMessage(jid, { text: reply.replyContent || "" });
-            const sentKey = sent?.key;
-            if (sentKey) {
-              for (const edit of reply.morphEdits) {
-                await new Promise((r) => setTimeout(r, (edit.delaySeconds || 1) * 1e3));
-                await sock.sendMessage(jid, {
-                  edit: sentKey,
-                  text: edit.text
-                });
-              }
-            }
-          } catch (err) {
-            logger.error({ err }, "Morphing reply error");
-          }
-          break;
-        }
-        if (reply.replyType === "rotating" && reply.rotatingMessages?.length) {
-          const msgs = reply.rotatingMessages;
-          const rotKey = `rot_idx_${reply.id}`;
-          const idx = (inMemoryDB[rotKey] || 0) % msgs.length;
-          inMemoryDB[rotKey] = idx + 1;
-          try {
-            await sock.sendMessage(jid, { text: msgs[idx] });
-          } catch (err) {
-            logger.error({ err }, "Rotating reply error");
-          }
-          break;
-        }
-        // ── وسائط محفوظة محلياً (صورة/فيديو/ملف/صوت) ─────────��────────────
-        if ((reply.replyType === "image" || reply.replyType === "video" ||
-             reply.replyType === "document" || reply.replyType === "audio") &&
-            (reply.replyContent || "").startsWith("local:")) {
-          const localPath = reply.replyContent.slice(6); // بعد "local:"
-          try {
-            const { readFile: _rfAR } = await import("node:fs/promises");
-            const fileBuf = await _rfAR(localPath);
-            if (reply.replyType === "image") {
-              await sock.sendMessage(jid, { image: fileBuf, caption: "" });
-            } else if (reply.replyType === "video") {
-              await sock.sendMessage(jid, { video: fileBuf, caption: "" });
-            } else if (reply.replyType === "document") {
-              const fn = localPath.split("/").pop() || "file";
-              await sock.sendMessage(jid, { document: fileBuf, fileName: fn, mimetype: "application/octet-stream" });
-            } else if (reply.replyType === "audio") {
-              const audioMime = reply._audioMime || "audio/mpeg";
-              await sock.sendMessage(jid, { audio: fileBuf, mimetype: audioMime });
-            }
-          } catch (err) {
-            logger.error({ err, localPath }, "Local media auto-reply error");
-            await sock.sendMessage(jid, { text: "❌ تعذّر إرسال الملف المرفق" });
-          }
-          break;
-        }
-        const responseText = (reply.replyContent || "").replace(/{name}/g, senderName).replace(/{number}/g, jid.split("@")[0]).replace(/{group}/g, isGroup ? jid : "").replace(/{time}/g, (/* @__PURE__ */ new Date()).toLocaleTimeString("ar")).replace(/{date}/g, (/* @__PURE__ */ new Date()).toLocaleDateString("ar")).replace(/{random}/g, String(Math.floor(Math.random() * 1e3))).replace(/{count}/g, "1");
-        try {
-          await sock.sendMessage(jid, { text: responseText });
-        } catch (err) {
-          logger.error({ err }, "Error sending WhatsApp reply");
-        }
-        break;
-      }
+      await runAutoReplies(sock, msg, text, senderName);
   }
   // مزامنة جهات الاتصال من واتساب تلقائياً
   sock.ev.on("contacts.upsert", (cList) => {
