@@ -111,3 +111,34 @@ test("Mawdoo3 fetch selects a fresh matching title and link only", async () => {
   );
   clearMawdoo3Cache();
 });
+
+test('love does not match prayer or a single ambiguous substring', () => {
+  assert.equal(matchesMawdoo3Topic('كيفية الصلاة في الإسلام', 'حب'), false);
+  assert.equal(matchesMawdoo3Topic('قصة عيد الحب', 'قصص حب'), false);
+  assert.equal(matchesMawdoo3Topic('قصة رومانسية', 'قصص حب'), true);
+  assert.equal(matchesMawdoo3Topic('قصص عن الصلاة', 'قصص حب'), false);
+  assert.equal(matchesMawdoo3Topic('أجمل قصص الحب', 'قصص حب'), true);
+});
+
+test('targeted article and its related articles can be discovered outside generic listings', async () => {
+  clearMawdoo3Cache();
+  const fake = async url => {
+    if (decodeURIComponent(String(url)).includes('قصة_حب_رومانسية')) return new Response('<h1>قصة حب رومانسية</h1><a href="/قصص_حب_مؤلمة">قصة</a>', {status:200});
+    if (String(url).includes('خاص')) return new Response('<a href="/كيفية_الصلاة">صلاة</a>', {status:200});
+    return new Response('missing', {status:404});
+  };
+  const first = await findNextMawdoo3Article('قصص حب',{fetchImpl:fake});
+  assert.match(first.title,/حب/);
+  const second = await findNextMawdoo3Article('قصص حب',{fetchImpl:fake,seenUrls:[first.url]});
+  assert.notEqual(first.url,second.url);
+  assert.doesNotMatch(first.title,/الصلاة/);
+  clearMawdoo3Cache();
+});
+
+test('long stories retain the end and short dialogue in extracted content', () => {
+  const text = 'بداية '.repeat(2200);
+  const result = extractMawdoo3ArticleText(`<article><p>${text}</p><p>نعم!</p><p>وهكذا انتهت القصة بنهاية سعيدة.</p></article>`);
+  assert.ok(result.length > 12000);
+  assert.match(result,/نعم!/);
+  assert.match(result,/انتهت القصة بنهاية سعيدة/);
+});

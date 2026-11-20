@@ -275,7 +275,7 @@ function publicAutoPost(item) {
     id: String(item.id || ""),
     topic: String(item.topic || ""),
     excerptLength: Number.isInteger(item.excerptLength) ? item.excerptLength : 500,
-    excerptMode: item.excerptMode === "ai" ? "ai" : "length",
+    excerptMode: ["ai", "full"].includes(item.excerptMode) ? item.excerptMode : "length",
     aiPrompt: String(item.aiPrompt || ""),
     times: Array.isArray(item.times) ? item.times.filter((time) => /^\d{2}:\d{2}$/.test(time)) : [],
     enabled: item.enabled === true,
@@ -391,7 +391,22 @@ function postTextForArticle(article, length) {
   return `📖 ${article.title}\n\n${articleExcerpt(content, length)}`;
 }
 
+function isStoryTopic(topic) {
+  const normalized = String(topic || '').normalize('NFKC').replace(/[\u064b-\u065f\u0670\u0640]/g, '').replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه');
+  return /(?:^|\s)(?:ال)?(?:قصه|قصص|حكايه|حكايات|روايه|روايات)(?:\s|$)/u.test(normalized);
+}
+export function cleanFullArticle(content) {
+  return String(content || '').split(/\n/u)
+    .filter(line => !/^\s*(?:تمت الكتابة بواسطة|كتابة|بقلم|الكاتب|المؤلف|المراجع|المصدر|آخر تحديث|آخر تعديل|تاريخ النشر)\s*[:：]?/u.test(line))
+    .join('\n').replace(/https?:\/\/\S+|www\.\S+/giu, '').trim();
+}
 async function preparePostArticle(userId, article, item) {
+  // A story is kept verbatim: generating it through an LLM can silently omit its ending.
+  if (item.excerptMode === 'full' || (item.excerptMode === 'ai' && isStoryTopic(item.topic))) {
+    const full = cleanFullArticle(article.content);
+    if (!full) throw new Error('تعذر استخراج المقال كاملاً');
+    return full;
+  }
   if (item.excerptMode !== 'ai') return articleExcerpt(article.content, item.excerptLength);
   const user = _deps?.getUser?.(String(userId)) || {};
   return prepareArticleWithAi({
@@ -399,6 +414,29 @@ async function preparePostArticle(userId, article, item) {
     model: user.nvidiaModel || 'meta/llama-3.1-8b-instruct',
     title: article.title, content: article.content, prompt: item.aiPrompt || '',
   });
+}
+export function splitArticleForWhatsApp(title, content, maxLength = 3500) {
+  const text = `📖 ${title}\n\n${content}`;
+  if (text.length <= maxLength) return [text];
+  const parts = []; let rest = text;
+  const bodyLimit = maxLength - 32;
+  while (rest.length > bodyLimit) {
+    let cut = rest.lastIndexOf('\n', bodyLimit);
+    if (cut < bodyLimit / 2) cut = rest.lastIndexOf(' ', bodyLimit);
+    if (cut < bodyLimit / 2) cut = bodyLimit;
+    else cut += 1;
+    if (/[\uD800-\uDBFF]/u.test(rest[cut - 1])) cut--;
+    parts.push(rest.slice(0, cut)); rest = rest.slice(cut);
+  }
+  if (rest) parts.push(rest);
+  return parts.map((part, i) => `(${i + 1}/${parts.length})\n${part}`);
+}
+async function sendArticleInParts(sock, groupId, title, content) {
+  const parts = splitArticleForWhatsApp(title, content);
+  for (let i = 0; i < parts.length; i++) {
+    try { await sock.sendMessage(groupId, {text:parts[i]}); }
+    catch { throw new Error(`تعذر إرسال الجزء ${i + 1} من ${parts.length}؛ أُرسل ${i} جزء قبل الخطأ، ولن تتكرر تلقائياً`); }
+  }
 }
 
 export function getKhartoumClock(date = new Date()) {
@@ -662,7 +700,7 @@ async function publishScheduledItem(userId, item, day, time) {
     article.content = await fetchMawdoo3ArticleContent(article.url);
     const prepared = await preparePostArticle(userId, article, current);
     reserveAutoPostUrl(userId, groupId, article.url);
-    await access.sock.sendMessage(groupId, { text: `📖 ${article.title}\n\n${prepared}` });
+    await sendArticleInParts(access.sock, groupId, article.title, prepared);
     saveAutoPostResult(userId, groupId, item.id, {
       lastSentAt: new Date().toISOString(),
       lastError: null,
@@ -709,7 +747,7 @@ export async function saveWebGroupAutoPost(userId, groupId, phoneNumber, input =
   if (topic.length < 2 || topic.length > 60) throw new Error("اكتب موضوعاً من حرفين إلى 60 حرفاً");
   const times = parseAutoPostTimes(input.times);
   const excerptMode = input.excerptMode == null ? "length" : String(input.excerptMode);
-  if (!["length", "ai"].includes(excerptMode)) throw new Error("طريقة إعداد المقتطف غير صالحة");
+  if (!["length", "ai", "full"].includes(excerptMode)) throw new Error("طريقة إعداد المقتطف غير صالحة");
   const aiPrompt = String(input.aiPrompt || "").trim();
   if (aiPrompt.length > 2000) throw new Error("البرومبت يتجاوز 2000 حرف");
   if (excerptMode === "ai" && !(user.nvidiaKey || process.env.NVIDIA_API_KEY)) throw new Error("أضف مفتاح NVIDIA في قسم الذكاء الاصطناعي أولاً");
@@ -803,7 +841,7 @@ export async function publishWebGroupAutoPostNow(userId, groupId, phoneNumber, a
     article.content = await fetchMawdoo3ArticleContent(article.url);
     const prepared = await preparePostArticle(access.userId, article, item);
     reserveAutoPostUrl(access.userId, access.groupId, article.url);
-    await access.sock.sendMessage(access.groupId, { text: `📖 ${article.title}\n\n${prepared}` });
+    await sendArticleInParts(access.sock, access.groupId, article.title, prepared);
     saveAutoPostResult(access.userId, access.groupId, item.id, {
       lastSentAt: new Date().toISOString(),
       lastError: null,

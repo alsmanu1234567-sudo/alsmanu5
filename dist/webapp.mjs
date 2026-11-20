@@ -776,7 +776,7 @@ function renderGroupDetails(){
     '<div class="meta" style="white-space:normal">المتغيرات: <code>_nem</code> اسم العضو، <code>_time</code> الوقت بتوقيت الخرطوم، <code>_nemgrob</code> اسم المجموعة. اكتب المتغير كما هو مع الشرطة السفلية.</div>' +
     '<button class="btn btn-p btn-sm" data-group-messages-save>حفظ رسائل الترحيب والوداع</button></div>' +
     '<div class="group-detail-block"><div class="group-detail-title">🗓️ النشر التلقائي</div>' +
-    '<div class="meta" style="white-space:normal">ينشر عنوان المقال ومقتطفه من موضوع بالطول المحدد أو باستخدام الذكاء الاصطناعي، بدون رابط أو اسم الكاتب. الأوقات بتوقيت الخرطوم وسجل منع التكرار محفوظ للمجموعة.</div>' +
+    '<div class="meta" style="white-space:normal">ينشر مقالاً من موضوع كاملاً أو مقتطفاً بالطول المحدد أو بالذكاء الاصطناعي، بدون رابط أو اسم الكاتب. القصص تُنشر كاملة عند اختيار الذكاء. الأوقات بتوقيت الخرطوم وسجل منع التكرار محفوظ للمجموعة.</div>' +
     autoPostRows +
     '<div class="auto-post-form"><div class="fld"><label for="autoPostTopic">نوع المحتوى أو موضوع البحث</label>' +
     '<input type="text" id="autoPostTopic" list="autoPostTopics" maxlength="60" '+
@@ -789,11 +789,12 @@ function renderGroupDetails(){
     '<div class="fld"><label for="autoPostMode">طريقة اختيار المقتطف</label>' +
     '<select id="autoPostMode" '+(canManage?"":"disabled")+'>' +
     '<option value="length" '+(editingAutoPost?.excerptMode!=="ai"?"selected":"")+'>عدد أحرف محدد</option>' +
-    '<option value="ai" '+(editingAutoPost?.excerptMode==="ai"?"selected":"")+'>الذكاء الاصطناعي (النموذج المختار في قسم الذكاء)</option></select></div>' +
+    '<option value="ai" '+(editingAutoPost?.excerptMode==="ai"?"selected":"")+'>الذكاء الاصطناعي (النموذج المختار في قسم الذكاء)</option>' +
+    '<option value="full" '+(editingAutoPost?.excerptMode==="full"?"selected":"")+'>المقال كاملاً بدون اختصار</option></select></div>' +
     '<div class="fld" id="autoPostAiFields" style="display:'+(editingAutoPost?.excerptMode==="ai"?"block":"none")+'"><label for="autoPostAiPrompt">تعليمات الذكاء للنشر (اختياري)</label>' +
     '<textarea id="autoPostAiPrompt" maxlength="2000" placeholder="مثال: اختر أهم المعلومات ورتبها في نقاط" '+(canManage?"":"disabled")+'>'+esc(editingAutoPost?.aiPrompt||"")+'</textarea>' +
-    '<div class="meta">يُستخدم فقط عند اختيار الذكاء الاصطناعي؛ قد يستهلك من رصيد NVIDIA.</div></div>' +
-    '<div class="fld" id="autoPostLengthFields" style="display:'+(editingAutoPost?.excerptMode==="ai"?"none":"block")+'"><label for="autoPostLength">الحد الأقصى لأحرف المقتطف</label>' +
+    '<div class="meta">يُستخدم مع الذكاء للمقالات العادية. للقصص تُنشر كاملة كما هي دون برومبت حتى لا تُختصر.</div></div>' +
+    '<div class="fld" id="autoPostLengthFields" style="display:'+(editingAutoPost?.excerptMode && editingAutoPost?.excerptMode!=="length"?"none":"block")+'"><label for="autoPostLength">الحد الأقصى لأحرف المقتطف</label>' +
     '<input type="number" id="autoPostLength" min="50" max="12000" step="1" value="'+esc(editingAutoPost?.excerptLength||500)+'" '+(canManage?"":"disabled")+'>' +
     '<div class="meta">من 50 إلى 12000 حرف، الافتراضي 500 حرف.</div></div>' +
     '<button class="btn btn-p btn-sm" data-auto-save '+(canManage?"":"disabled")+'>' +
@@ -881,7 +882,7 @@ function renderGroupDetails(){
   sh.querySelector("#autoPostMode")?.addEventListener("change", (event) => {
     const ai = event.target.value === "ai";
     sh.querySelector("#autoPostAiFields").style.display = ai ? "block" : "none";
-    sh.querySelector("#autoPostLengthFields").style.display = ai ? "none" : "block";
+    sh.querySelector("#autoPostLengthFields").style.display = event.target.value === "length" ? "block" : "none";
   });
   sh.querySelectorAll("[data-auto-publish]").forEach(button=>
     button.addEventListener("click", ()=>publishGroupAutoPost(button.dataset.autoPublish, button))

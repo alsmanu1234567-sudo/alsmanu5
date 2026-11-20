@@ -6,7 +6,7 @@ const LISTING_PAGES = [
 const CACHE_TTL_MS = 15 * 60_000;
 const MAX_LISTING_BYTES = 2 * 1024 * 1024;
 const MAX_ARTICLE_BYTES = 5 * 1024 * 1024;
-const MAX_ARTICLE_CONTENT_CHARS = 12_000;
+const MAX_ARTICLE_CONTENT_CHARS = 200_000;
 
 let cachedArticles = null;
 let cacheExpiresAt = 0;
@@ -156,7 +156,7 @@ function articleTextBlocks(html) {
     const markup = match[3];
     const text = articleTextFromMarkup(markup);
     if (
-      text.length < (tag === "li" ? 12 : 20) ||
+      !text ||
       /^(?:اقرأ(?:\s|ً)|مواضيع ذات صلة|مقالات ذات صلة|قد يعجبك|المصدر|المراجع|تمت الكتابة بواسطة|آخر تحديث|آخر تعديل|تاريخ النشر|محتويات)/iu.test(text) ||
       (tag === "li" && text.length < 180 && /<a\b[^>]*\bhref\s*=\s*["']#/iu.test(markup))
     ) continue;
@@ -202,8 +202,8 @@ export function extractMawdoo3ArticleText(html) {
 
   const content = ranked[0]?.paragraphs.join("\n\n").trim() || "";
   if (!content) throw new Error("تعذّر استخراج نص المقال من صفحة موضوع");
-  if (content.length <= MAX_ARTICLE_CONTENT_CHARS) return content;
-  return `${content.slice(0, MAX_ARTICLE_CONTENT_CHARS).trimEnd()}…`;
+  if (content.length > MAX_ARTICLE_CONTENT_CHARS) throw new Error("المقال أطول من الحد الآمن؛ لم يتم اقتطاعه أو نشره");
+  return content;
 }
 
 export async function fetchMawdoo3ArticleContent(url, { fetchImpl = globalThis.fetch } = {}) {
@@ -253,21 +253,61 @@ export async function fetchMawdoo3ArticleContent(url, { fetchImpl = globalThis.f
   return content;
 }
 
+function topicTokens(text) {
+  return normalizeArabic(text).split(/[^\p{L}\p{N}]+/u).filter(Boolean)
+    .map(word => word.startsWith("ال") && word.length > 3 ? word.slice(2) : word);
+}
+function tokenMatches(word, query) {
+  const stories = /^(?:قصه|قصص|قصتي|حكايه|حكايات|روايه|روايات)$/u;
+  const love = /^(?:حب|الحب|عشق|غرام|رومانسي|رومانسيه|رومانسيات|عاطفي|عاطفيه)$/u;
+  const jokes = /^(?:نكته|نكت|نكات|طرائف|فكاهه|مضحكه|مضحك)$/u;
+  if (stories.test(query)) return stories.test(word);
+  if (love.test(query)) return love.test(word);
+  if (jokes.test(query)) return jokes.test(word);
+  return word === query || (query.length >= 4 && word.startsWith(query));
+}
 export function matchesMawdoo3Topic(title, topic) {
-  const normalizedTitle = normalizeArabic(title);
-  const normalizedTopic = normalizeArabic(topic);
-  if (!normalizedTitle || normalizedTopic.length < 2) return false;
-
-  const story = /(?:قصه|قصص|حكايه|حكايات|روايه|روايات)/u;
-  const love = /(?:حب|عاطفيه|رومانسيه|غرام)/u;
-  const jokes = /(?:نكت|نكات|طرائف|فكاهه|مزاح|مضحك|مضحكه)/u;
-
-  if (/(?:نكت|نكات|طرائف|فكاهه|مزاح)/u.test(normalizedTopic)) return jokes.test(normalizedTitle);
-  if (normalizedTopic.includes("حب") && story.test(normalizedTopic)) {
-    return story.test(normalizedTitle) && love.test(normalizedTitle);
+  const titleWords = topicTokens(title);
+  const ignored = new Set(['عن','في','من','الى','مع','اجمل','افضل','ما','هو','هي','موضوع','مواضيع']);
+  const queryWords = topicTokens(topic).filter(word => !ignored.has(word));
+  if (titleWords.includes("عيد") && !queryWords.includes("عيد")) return false;
+  return !!queryWords.length && queryWords.every(query => titleWords.some(word => tokenMatches(word, query)));
+}
+function topicSeedTitles(topic) {
+  const clean = String(topic).trim().replace(/\s+/gu, '_');
+  const titles = [clean, `ال${clean}`, `أجمل_${clean}`, `ما_هو_${clean}`];
+  const tokens = topicTokens(topic);
+  const hasStory = tokens.some(t => /^(?:قصه|قصص|حكايه|حكايات|روايه|روايات)$/u.test(t));
+  const hasLove = tokens.some(t => /^(?:حب|عشق|غرام|رومانسي|رومانسيه)$/u.test(t));
+  if (hasLove) titles.push('الحب');
+  if (hasStory && hasLove) titles.push('قصة_حب_رومانسية', 'قصص_حب_مؤلمة', 'قصص_حب_حقيقية', 'أجمل_قصص_الحب');
+  return [...new Set(titles)].slice(0, 8);
+}
+async function targetedArticles(topic, fetchImpl) {
+  const urls = topicSeedTitles(topic).map(title => `${MAWDOO3_ORIGIN}/${encodeURIComponent(title)}`);
+  const responses = await Promise.allSettled(urls.map(async url => {
+    const response = await fetchImpl(url, {headers: {"User-Agent":"Mozilla/5.0 (compatible; GroupBot/1.0)"}, signal:AbortSignal.timeout(15000)});
+    if (!response.ok) return [];
+    if (response.url) {
+      const final = new URL(response.url);
+      if (!['mawdoo3.com','www.mawdoo3.com'].includes(final.hostname)) return [];
+    }
+    if (Number(response.headers?.get?.('content-length') || 0) > MAX_ARTICLE_BYTES) return [];
+    const html = await response.text();
+    if (Buffer.byteLength(html, 'utf8') > MAX_ARTICLE_BYTES) return [];
+    const candidates = parseMawdoo3Listing(html, url);
+    // A validated article h1 establishes that this is a real article, not a 200 error page.
+    const heading = html.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/iu)?.[1];
+    const pathTitle = titleFromPath(new URL(response.url || url).pathname);
+    const cleanHeading = heading ? articleTextFromMarkup(heading).trim() : '';
+    if (cleanHeading && normalizeArabic(cleanHeading) === normalizeArabic(pathTitle)) candidates.unshift({title:pathTitle, url:response.url || url});
+    return candidates;
+  }));
+  const unique = new Map();
+  for (const response of responses) if (response.status === 'fulfilled') {
+    for (const candidate of response.value) if (!unique.has(candidate.url)) unique.set(candidate.url, candidate);
   }
-  if (story.test(normalizedTopic)) return story.test(normalizedTitle);
-  return normalizedTitle.includes(normalizedTopic);
+  return [...unique.values()];
 }
 
 async function fetchListingPage(url, fetchImpl) {
@@ -327,8 +367,15 @@ export async function findNextMawdoo3Article(topic, {
   }
 
   const seen = new Set((Array.isArray(seenUrls) ? seenUrls : []).map((url) => String(url)));
-  const candidates = (await getMawdoo3Articles({ fetchImpl, forceRefresh }))
-    .filter((article) => matchesMawdoo3Topic(article.title, normalizedTopic));
+  const results = await Promise.allSettled([
+    targetedArticles(normalizedTopic, fetchImpl),
+    getMawdoo3Articles({ fetchImpl, forceRefresh }),
+  ]);
+  const combined = new Map();
+  for (const result of results) if (result.status === "fulfilled") {
+    for (const article of result.value) if (matchesMawdoo3Topic(article.title, normalizedTopic)) combined.set(article.url, article);
+  }
+  const candidates = [...combined.values()];
   const article = candidates.find((candidate) => !seen.has(candidate.url));
   if (!article) {
     throw new Error(
