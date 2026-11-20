@@ -100,6 +100,7 @@ export function urlButton(displayText, url) {
     buttonParamsJson: JSON.stringify({
       display_text: label,
       url: parsed.toString(),
+      merchant_url: parsed.toString(),
     }),
   };
 }

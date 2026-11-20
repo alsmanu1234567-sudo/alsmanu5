@@ -35,3 +35,9 @@ export function resolveInteractiveAnswer(rule,index) {
   const config=validateInteractiveConfig(rule.replyType,rule.replyContent);
   return Number.isInteger(index) && index>=0 && index<config.entries.length ? config.entries[index].value : null;
 }
+
+// Used only when WhatsApp relay reports an error.
+export function formatInteractiveFallback(rule) {
+  const config=validateInteractiveConfig(rule.replyType,rule.replyContent);
+  return config.text + "\n\n" + config.entries.map(e => `${e.label}: ${e.value}`).join("\n");
+}

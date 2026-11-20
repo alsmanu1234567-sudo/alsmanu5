@@ -51,3 +51,8 @@ test('actual dispatcher handles button click in the same chat and respects targe
   assert.equal(sent[0][0],jid);assert.equal(sent[0][1].text,'تم بنجاح');
   reply.target='self';await run('arbtn:r123:0');assert.equal(sent.length,1);
 });
+
+test('interactive relay failure fallback includes the configured answers and links',async()=>{
+  const {formatInteractiveFallback}=await import('../../services/auto-reply-interactive.mjs');
+  assert.equal(formatInteractiveFallback({replyType:'button_quick',replyContent:JSON.stringify({text:'اختر',entries:[{label:'خدمة',value:'تفاصيل'}]})}),'اختر\n\nخدمة: تفاصيل');
+});

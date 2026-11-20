@@ -443,11 +443,15 @@ async function sendXoBoard(sock, groupId, game) {
       id: `gw:xo:${game.id}:cancel`,
       title: "إلغاء",
     });
-    return sendNativeInteractive(sock, groupId, {
-      text,
-      buttons,
-      footer: "أزرار مباشرة — الحركة لصاحب الدور فقط.",
-    });
+    let sentInteractive = false;
+    try {
+      await sendNativeInteractive(sock, groupId, { text, buttons, footer: "أزرار مباشرة — الحركة لصاحب الدور فقط." });
+      sentInteractive = true;
+    } catch (error) {
+      _deps.logger?.warn?.({err:String(error),groupId}, "XO interactive send failed; using text board");
+    }
+    // Some clients silently omit native-flow buttons even after a successful relay.
+    return sendText(sock, groupId, `${text}\n${sentInteractive ? "إذا لم تظهر الأزرار، " : ""}اكتب .اكس_او 5 ${game.id} للعب، أو .اكس_او الغاء ${game.id} للإلغاء.`);
   } else if (game.status === "draw") {
     text += "انتهت المباراة بالتعادل.";
     buttons.push({ id: `gw:xo:${game.id}:replay`, title: "إعادة اللعب" });
@@ -605,13 +609,31 @@ async function commandReply(sock, groupId, memberId, message, text, isBotOwner =
 
   if (commandToken === ".اكس_او") {
     const mentioned = message?.message?.extendedTextMessage?.contextInfo?.mentionedJid || [];
-    if (!mentioned.length) return sendText(sock, groupId, "استخدم: .اكس_او @الخصم");
+    if (!mentioned.length && ["نافذة", "البوت", "ultra"].includes(args.toLowerCase())) {
+      const { sendXoUltra } = await import("../../services/xo-ultra.mjs");
+      return sendXoUltra(sock, groupId);
+    }
+    const xoAction = argsList[0] || "";
+    if (!mentioned.length && (/^[1-9]$/.test(xoAction) || ["لوحة", "الغاء", "إلغاء"].includes(xoAction))) {
+      const world = await groupWorldService.getGroup(groupId);
+      const games = (world.games || []).filter(g => g.kind === "xo" && g.status === "active" && (!argsList[1] || g.id === argsList[1]) && [g.xPlayer, g.oPlayer].some(id => sameMember(id, memberId)));
+      if (!games.length) return sendText(sock, groupId, "لا توجد لك مباراة XO نشطة. ابدأ مباراة بكتابة .اكس_او @الخصم");
+      if (games.length > 1) return sendText(sock, groupId, "لديك أكثر من مباراة نشطة؛ أعد إرسال .اكس_او مع منشن الخصم لعرض لوحتها.");
+      const game = games[0];
+      if (xoAction === "لوحة") return sendXoBoard(sock, groupId, game);
+      if (xoAction === "الغاء" || xoAction === "إلغاء") return sendXoBoard(sock, groupId, await groupWorldService.cancelTicTacToe(groupId, game.id, memberId));
+      return sendXoBoard(sock, groupId, await groupWorldService.moveTicTacToe(groupId, game.id, memberId, Number(xoAction)-1));
+    }
+    if (!mentioned.length) return sendText(sock, groupId, "مباراة بين عضوين: .اكس_او @الخصم\nلعبة نافذة ضد الجهاز: .اكس_او نافذة\nاستعادة لوحتك: .اكس_او لوحة");
     const metadata = await sock.groupMetadata(groupId);
     const opponent = (metadata.participants || []).find((item) =>
       [item.id, item.jid, item.pn, item.lid].some((value) => sameMember(value, mentioned[0]))
     );
     if (!opponent) return sendText(sock, groupId, "يجب أن يكون الخصم عضوًا حاليًا في المجموعة.");
     const opponentId = opponent.id || opponent.jid || opponent.pn || opponent.lid;
+    const world = await groupWorldService.getGroup(groupId);
+    const existing = (world.games || []).find(g => g.kind === "xo" && g.status === "active" && [g.xPlayer,g.oPlayer].some(id=>sameMember(id,memberId)) && [g.xPlayer,g.oPlayer].some(id=>sameMember(id,opponentId)));
+    if (existing) return sendXoBoard(sock, groupId, existing);
     const game = await groupWorldService.startTicTacToe(groupId, memberId, opponentId, {
       x: profile.name || name,
       o: opponent.notify || opponent.name || "",

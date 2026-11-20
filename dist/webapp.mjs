@@ -76,13 +76,16 @@ export function registerWebApp(app, { replyService } = {}) {
 
   app.get("/webapp", (req, res) => {
     res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.setHeader("Cache-Control", "no-store");
     const navigation = '<a class="btn btn-s btn-sm" style="margin-top:10px;text-decoration:none" href="/group-world" onclick="location.href=\'/group-world\'+location.search;return false">🌍 عالم المجموعات</a>';
     res.end(HTML_PAGE.replace('<div class="hdr">', `<div class="hdr">\n  ${navigation}`));
   });
 
+  app.get("/xo-ultra", (_req, res) => { res.setHeader("Content-Type", "text/html; charset=utf-8"); res.setHeader("Cache-Control", "no-store"); res.end(readFileSync(fileURLToPath(new URL("../public/xo-ultra.html", import.meta.url)))); });
+
   const reply = () => { if (!replyService) throw new Error('خدمة الردود غير جاهزة'); return replyService; };
-  app.get('/auto-replies.js', (_req, res) => { res.setHeader('Content-Type','application/javascript; charset=utf-8'); res.end(readFileSync(fileURLToPath(new URL('../public/auto-replies.js', import.meta.url)))); });
-  app.get('/auto-replies.css', (_req, res) => { res.setHeader('Content-Type','text/css; charset=utf-8'); res.end(readFileSync(fileURLToPath(new URL('../public/auto-replies.css', import.meta.url)))); });
+  app.get('/auto-replies.js', (_req, res) => { res.setHeader('Content-Type','application/javascript; charset=utf-8'); res.setHeader('Cache-Control','no-store'); res.end(readFileSync(fileURLToPath(new URL('../public/auto-replies.js', import.meta.url)))); });
+  app.get('/auto-replies.css', (_req, res) => { res.setHeader('Content-Type','text/css; charset=utf-8'); res.setHeader('Cache-Control','no-store'); res.end(readFileSync(fileURLToPath(new URL('../public/auto-replies.css', import.meta.url)))); });
   app.get('/api/replies/list', guard(async uid => ({replies:reply().list(uid), numbers:reply().numbers(uid)})));
   app.post('/api/replies/save', parseJson, guard(async (uid, req) => reply().save(uid, req.body || {})));
   app.post('/api/replies/delete', parseJson, guard(async (uid, req) => reply().delete(uid, req.body?.id)));

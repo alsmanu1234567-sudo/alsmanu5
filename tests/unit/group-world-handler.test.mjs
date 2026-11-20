@@ -265,3 +265,18 @@ test('linked owner can press an XO button as a fromMe interactive message', asyn
   const game=(await service.getGroup(GROUP)).games.find(g=>g.id===id.split(':')[2]);
   assert.equal(game.board[0],'X');
 });
+
+test('XO resumes the stuck game and text fallback works if button relay fails', async (t) => {
+  const {service,sock,sent}=await setup(t);
+  sock.relayMessage=async()=>{throw Error('relay not supported')};
+  const start=id=>({key:{id,remoteJid:GROUP,fromMe:true,participant:OWNER_LID,participantAlt:OWNER_PHONE},message:{extendedTextMessage:{text:'.اكس_او @249000000002',contextInfo:{mentionedJid:[MEMBER]}}}});
+  await handleGroupWorldMessage('web-owner',sock,start('fallback-start'),'notify');
+  const games=(await service.getGroup(GROUP)).games.filter(g=>g.kind==='xo' && g.status==='active');
+  assert.equal(games.length,1);assert.match(sent.at(-1).text,/اكس_او 5/);
+  await handleGroupWorldMessage('web-owner',sock,start('fallback-resume'),'notify');
+  assert.equal((await service.getGroup(GROUP)).games.filter(g=>g.kind==='xo' && g.status==='active').length,1);
+  await handleGroupWorldMessage('web-owner',sock,message('fallback-move',`.اكس_او 5 ${games[0].id}`),'notify');
+  assert.equal((await service.getGroup(GROUP)).games.find(g=>g.id===games[0].id).board[4],'X');
+  await handleGroupWorldMessage('web-owner',sock,message('fallback-cancel',`.اكس_او الغاء ${games[0].id}`),'notify');
+  assert.equal((await service.getGroup(GROUP)).games.find(g=>g.id===games[0].id).status,'cancelled');
+});

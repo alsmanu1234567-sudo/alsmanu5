@@ -115,6 +115,13 @@ async function handleReplyTypeCallbackInternal(bot2, chatId, userId, data) {
     await bot2.sendMessage(chatId, `🔘 إعداد الأزرار\n\nأرسل نص الرسالة في السطر الأول، ثم كل خيار في سطر بالشكل:\n${details}\n\nمثال:\nأهلاً بك، اختر خياراً:\nالخيار الأول|${replyType === 'button_url' ? 'https://example.com' : 'هذا هو الرد الأول'}\n\nمن 1 إلى 9 خيارات.`);
     return;
   }
+  if (data === "rtype_xo_ultra") {
+    const state = getState(userId);
+    setState(userId, "awaiting_reply_target", { ...state.data, replyType:"xo_ultra", replyContent:"__xo_ultra__" });
+    await bot2.sendMessage(chatId, "🎮 XO ULTRA ضد الجهاز. اختر هدف الرد:", {reply_markup:replyTargetKeyboard()});
+    return;
+  }
+
   if (data === "rtype_xo") {
     const state = getState(userId);
     setState(userId, "awaiting_reply_target", {
@@ -1365,7 +1372,7 @@ export async function handleAutoReplyCallback(bot2, chatId, userId, data) {
       "## 2. هيكل ملف الرد (JSON)",
       "```json\n" + sampleJson + "\n```",
       "## 3. شرح الحقول",
-      "- **trigger**: الكلمة المفتاحية\n- **triggerType**: [exact | contains | starts | ends | regex]\n- **replyType**: [text | ai | reaction | morphing | rotating | image | audio | video | document | sticker | xo | button_quick | button_url | button_list]\n- **replyContent**: نص أو URL أو \"__ai_default__\" للذكاء\n- **target**: [all | specific | multiple | self] | **scope**: [both | private | groups]\n- **dailyLimit**: حد يومي (0 = بلا حد) | **perUserLimit**: حد لكل شخص كل 8ساعات",
+      "- **trigger**: الكلمة المفتاحية\n- **triggerType**: [exact | contains | starts | ends | regex]\n- **replyType**: [text | ai | reaction | morphing | rotating | image | audio | video | document | sticker | xo | xo_ultra | button_quick | button_url | button_list]\n- **replyContent**: نص أو URL أو \"__ai_default__\" للذكاء\n- **target**: [all | specific | multiple | self] | **scope**: [both | private | groups]\n- **dailyLimit**: حد يومي (0 = بلا حد) | **perUserLimit**: حد لكل شخص كل 8ساعات",
       "## 4. مثال رد دوري",
       "```json\n" + rotEx + "\n```",
       "## 5. مثال رد بالذكاء الاصطناعي",

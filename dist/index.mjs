@@ -1,4 +1,4 @@
-import { sendInteractiveAutoReply, resolveInteractiveAnswer } from '../services/auto-reply-interactive.mjs';
+import { sendInteractiveAutoReply, resolveInteractiveAnswer, formatInteractiveFallback } from '../services/auto-reply-interactive.mjs';
 import { setMessageCutoff } from "../engine/message-cutoff.mjs";
 import { isGeneratedAutoReply, protectAutoReplySocket, matchesReplyTarget } from '../services/auto-reply-routing.mjs';
 // PATCH_MASTER_FIX_APPLIED
@@ -124760,6 +124760,7 @@ function replyTypeKeyboard() {
       [{ text: "\u{1F3AC} \u0641\u064A\u062F\u064A\u0648", callback_data: "rtype_video" }, { text: "\u{1F4C4} \u0645\u0644\u0641", callback_data: "rtype_document" }, { text: "\u{1F60A} \u0645\u0644\u0635\u0642", callback_data: "rtype_sticker" }],
       [{ text: "\u{1F916} \u0631\u062F \u0628\u0627\u0644\u0630\u0643\u0627\u0621 \u0627\u0644\u0627\u0635\u0637\u0646\u0627\u0639\u064A (NVIDIA)", callback_data: "rtype_ai" }],
       [{ text: "\u{1F3AE} \u0644\u0639\u0628\u0629 X \u0648 O \u0636\u062F \u0627\u0644\u0628\u0648\u062A", callback_data: "rtype_xo" }],
+      [{ text: "🎮 XO ULTRA نافذة مثل STEAM", callback_data: "rtype_xo_ultra" }],
       [{ text: "🔘 أزرار رد سريع", callback_data: "rtype_button_quick" }, { text: "🔗 أزرار روابط", callback_data: "rtype_button_url" }],
       [{ text: "📋 قائمة خيارات", callback_data: "rtype_button_list" }],
       backAndHome()
@@ -293967,7 +293968,12 @@ function registerMessageHandler(sock, userId) {
         incrementReplyStat(userId, reply.id);
         if (['button_quick', 'button_url', 'button_list'].includes(reply.replyType)) {
           try { await sendInteractiveAutoReply(sock, jid, reply); }
-          catch (err) { logger.error({err}, 'Interactive auto-reply failed'); }
+          catch (err) { logger.error({err}, 'Interactive auto-reply failed'); try { await sock.sendMessage(jid, {text:formatInteractiveFallback(reply)}); } catch (fallbackErr) { logger.error({err:fallbackErr}, 'Interactive fallback failed'); } }
+          break;
+        }
+        if (reply.replyType === "xo_ultra") {
+          try { const { sendXoUltra } = await import("../services/xo-ultra.mjs"); await sendXoUltra(sock, jid); }
+          catch (err) { logger.error({err}, "XO ULTRA failed"); await sock.sendMessage(jid, {text:"تعذّر فتح لعبة XO حالياً."}); }
           break;
         }
         if (reply.replyType === "xo") {
@@ -331162,6 +331168,8 @@ app.use(
   })
 );
 app.use((0, import_cors.default)());
+// Allow the reply media endpoint to receive its documented 4 MB base64 payload.
+app.use("/api/replies/upload", import_express4.default.json({ limit: "6mb" }));
 app.use(import_express4.default.json());
 app.use(import_express4.default.urlencoded({ extended: true }));
 app.use("/api", routes_default);

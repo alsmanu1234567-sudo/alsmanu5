@@ -3,7 +3,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { validateInteractiveConfig } from '../services/auto-reply-interactive.mjs';
 
-const TYPES = new Set(['text','ai','reaction','rotating','morphing','xo','button_quick','button_list','button_url','image','video','audio','document','sticker']);
+const TYPES = new Set(['text','ai','reaction','rotating','morphing','xo','xo_ultra','button_quick','button_list','button_url','image','video','audio','document','sticker']);
 const MEDIA = new Set(['image','video','audio','document','sticker']);
 const STR = (v,max,name) => { const s=String(v ?? '').trim(); if(s.length>max) throw Error(`${name} طويل جداً`); return s; };
 const integer = (v,name) => { const n=Number(v || 0); if(!Number.isInteger(n)||n<0||n>100000) throw Error(`${name} غير صالح`);return n; };
@@ -29,6 +29,7 @@ export function validateWebReply(uid, input, existing = {}) {
   let rotatingMessages=[], morphEdits=[];
   if(replyType==='ai' && !replyContent) replyContent='__ai_default__';
   if(replyType==='xo') replyContent='__xo_game__';
+  if(replyType==='xo_ultra') replyContent='__xo_ultra__';
   if(MEDIA.has(replyType) && !(existing.replyType===replyType && existing.replyContent===replyContent)) localMedia(uid,replyContent);
   if(['text','reaction','morphing'].includes(replyType) && !replyContent) throw Error('أدخل محتوى الرد');
   if(replyType==='rotating') {
