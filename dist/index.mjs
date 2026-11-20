@@ -331225,7 +331225,10 @@ app.all("/tool/:code/*splat", (req, res) => {
 try {
   const { registerWebApp } = await import("./webapp.mjs");
   const { createAutoReplyWebService } = await import("./auto-reply-web.mjs");
-  registerWebApp(app, { replyService: createAutoReplyWebService({getUserReplies,inMemoryDB,persistReplies,getReplyStat,getUserNumbers,updateNumber}) });
+  const { createAiWebService } = await import("./ai-web.mjs");
+  init_ai_manager();
+  const aiWebService = createAiWebService({getUser,saveUser,getUserNumbers,updateNumber,ai:ai_manager_exports,clearMemory:uid=>{let count=0;for(const key of [...conversationHistory.keys()]) if(key.startsWith(`${uid}_`) || [ `rule_${uid}`, `test_${uid}`, `webtest_${uid}` ].includes(key)){conversationHistory.delete(key);count++;}return count;}});
+  registerWebApp(app, { replyService: createAutoReplyWebService({getUserReplies,inMemoryDB,persistReplies,getReplyStat,getUserNumbers,updateNumber}), aiService:aiWebService });
   // [SESSION-RESOLVER] ربط قسم التحويلات بمخزن جلسات البوت الرئيسي —
   // نفس الطريقة التي تجلب بها بقية أقسام البوت المجموعات (مفاتيح userId و userId_+رقم)
   const { setForwardSessionResolver, setForwardGroupsProvider } = await import("./forward.mjs");

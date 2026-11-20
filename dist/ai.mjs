@@ -1,4 +1,4 @@
-import { discoverNvidiaModels, keyFingerprint } from "../services/ai/nvidia-discovery.mjs";
+import { discoverNvidiaModels, listFreeNvidiaModels, keyFingerprint } from "../services/ai/nvidia-discovery.mjs";
 // dist/ai.mjs — [AI-FIX] معالجات الذكاء الاصطناعي الإضافية
 // إصلاحات:
 // 1. حُذف معالج menu_ai المكرر (كان يمرر boolean بدل اسم النموذج → TypeError)
@@ -14,28 +14,41 @@ async function _ai() {
 }
 
 const discoveryJobs = new Map();
+const freeLists = new Map();
 function verifiedModels(userId, getUser, getNvidiaKey) {
   const key = getNvidiaKey(userId);
   const saved = getUser(userId)?.aiDiscoveredModels;
   return key && saved?.keyFingerprint === keyFingerprint(key) && Array.isArray(saved.models) ? saved.models : [];
 }
+async function modelListing(userId, getUser, ai) {
+  const key=ai.getNvidiaKey(userId);
+  if(!key) throw new Error('أضف مفتاح NVIDIA أولاً لجلب الكتالوج.');
+  const fingerprint=keyFingerprint(key), saved=getUser(userId)?.aiDiscoveredModels;
+  if(saved?.keyFingerprint===fingerprint && Array.isArray(saved.models) && saved.checkedAt) return {models:saved.models,verified:true};
+  const cached=freeLists.get(String(userId));
+  if(cached?.fingerprint===fingerprint && Date.now()-cached.at<15*60*1000) return {models:cached.models,verified:false};
+  const models=await listFreeNvidiaModels(key);
+  if(keyFingerprint(ai.getNvidiaKey(userId)||'')!==fingerprint) throw Error('تغيّر المفتاح أثناء جلب القائمة؛ افتحها مجدداً.');
+  freeLists.set(String(userId),{fingerprint,models,at:Date.now()});
+  return {models,verified:false};
+}
 async function showVerifiedModels(bot, chatId, userId, page, getUser, ai) {
-  const models = verifiedModels(userId, getUser, ai.getNvidiaKey);
-  if (!models.length) {
-    await bot.sendMessage(chatId, 'لا توجد نماذج ناجحة محفوظة لهذا المفتاح. اضغط اكتشاف النماذج لبدء الفحص.');
-    return;
-  }
+  let listing;
+  try {listing=await modelListing(userId,getUser,ai)} catch(error) {await bot.sendMessage(chatId,'❌ '+error.message);return;}
+  const {models,verified}=listing;
+  if (!models.length) {await bot.sendMessage(chatId,verified?'لم يرد أي نموذج في آخر فحص. يمكنك إعادة الفحص.':'لم نجد نماذج مجانية معلّمة في كتالوج NVIDIA لهذا المفتاح.');return;}
   const size = 10, pages = Math.ceil(models.length / size);
   page = Math.max(0, Math.min(Number(page) || 0, pages - 1));
   const current = ai.getUserSelectedModel(userId);
-  const version = keyFingerprint(JSON.stringify(models.map(m => m.id))).slice(0, 8);
+  const version = keyFingerprint(keyFingerprint(ai.getNvidiaKey(userId)||'')+JSON.stringify(models.map(m => m.id))).slice(0, 8);
   const rows = models.slice(page * size, (page + 1) * size).map((m, offset) => [{text: `${m.id === current ? '✅ ' : ''}${m.id}`, callback_data: `ai_free_pick_${version}_${page * size + offset}`}]);
   const nav = [];
   if (page > 0) nav.push({text:'⬅️ السابق', callback_data:`ai_free_page_${page-1}`});
   if (page + 1 < pages) nav.push({text:'التالي ➡️', callback_data:`ai_free_page_${page+1}`});
   if (nav.length) rows.push(nav);
   rows.push([{text:'🔙 رجوع', callback_data:'menu_ai'}]);
-  await bot.sendMessage(chatId, `🧠 النماذج التي ردّت أثناء آخر فحص: ${models.length} — صفحة ${page+1}/${pages}\nقد يتغير توفرها وحدود استخدام NVIDIA لاحقاً.`, {reply_markup:{inline_keyboard:rows}});
+  const label=verified?'النماذج التي ردّت أثناء آخر فحص':'نماذج NVIDIA المعلّمة Free Endpoint — لم تُختبر بعد';
+  await bot.sendMessage(chatId, `🧠 ${label}: ${models.length} — صفحة ${page+1}/${pages}\nقد يتغير التوفر والتكلفة. اضغط اكتشاف النماذج لاختبار الاستجابة.`, {reply_markup:{inline_keyboard:rows}});
 }
 export async function handleAiCallback2(bot2, chatId, userId, data) {
   const { getUser, saveUser, setState, cancelKeyboard, aiMenuKeyboard } = _deps;
@@ -73,8 +86,8 @@ export async function handleAiCallback2(bot2, chatId, userId, data) {
     const ai = await _ai();
     const [version, rawIndex] = data.slice(13).split("_");
     const index = Number(rawIndex);
-    const models = verifiedModels(userId, getUser, ai.getNvidiaKey);
-    if (version !== keyFingerprint(JSON.stringify(models.map(m => m.id))).slice(0, 8) || !Number.isInteger(index) || !models[index]) { await bot2.sendMessage(chatId, '❌ هذه القائمة لم تعد صالحة، افتح قائمة النماذج من جديد.'); return true; }
+    let models; try { ({models}=await modelListing(userId,getUser,ai)); } catch { await bot2.sendMessage(chatId, '❌ القائمة غير متاحة؛ افتحها من جديد.'); return true; }
+    if (version !== keyFingerprint(keyFingerprint(ai.getNvidiaKey(userId)||'')+JSON.stringify(models.map(m => m.id))).slice(0, 8) || !Number.isInteger(index) || !models[index]) { await bot2.sendMessage(chatId, '❌ هذه القائمة لم تعد صالحة، افتح قائمة النماذج من جديد.'); return true; }
     ai.setUserModel(userId, models[index].id);
     await bot2.sendMessage(chatId, `✅ تم اختيار النموذج: ${models[index].id}`, {reply_markup:aiMenuKeyboard(true, models[index].id)});
     return true;

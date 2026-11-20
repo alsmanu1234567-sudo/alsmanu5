@@ -64,7 +64,7 @@ function guard(handler) {
 }
 
 // ─── التسجيل في تطبيق Express ──────────────────────────────────────
-export function registerWebApp(app, { replyService } = {}) {
+export function registerWebApp(app, { replyService, aiService } = {}) {
   // JSON body parsing خاص بمسارات الويب آب فقط (لا يؤثر على بقية البوت)
   const parseJson = (req, res, next) => {
     if (req.headers["content-type"]?.includes("application/json") && !req.body) {
@@ -85,7 +85,11 @@ export function registerWebApp(app, { replyService } = {}) {
   });
 
   app.get("/ludo", (_req, res) => { res.setHeader("Content-Type", "text/html; charset=utf-8"); res.setHeader("Cache-Control", "no-store"); res.setHeader("Referrer-Policy", "no-referrer"); res.end(readFileSync(fileURLToPath(new URL("../public/ludo.html", import.meta.url)))); });
-  const ludoGuard = fn => async(req,res) => {res.setHeader("Cache-Control","no-store");try{res.json(await fn(req.headers["x-ludo-game"],req.headers["x-ludo-seat"],req));}catch(e){res.status(400).json({error:e?.message||"تعذر تنفيذ الحركة"});}};
+  // The embedded game may be hosted by WhatsApp at an opaque origin. Game/seat
+  // capability tokens, not browser cookies, authorize these isolated endpoints.
+  const ludoCors = (req,res,next) => {res.setHeader("Access-Control-Allow-Origin","*");res.setHeader("Access-Control-Allow-Methods","GET, POST, OPTIONS");res.setHeader("Access-Control-Allow-Headers","Content-Type, X-Ludo-Game, X-Ludo-Seat");res.setHeader("Cache-Control","no-store");if(req.method === "OPTIONS")return res.status(204).end();next();};
+  if (typeof app.options === "function") app.options("/api/ludo/:action",ludoCors);
+  const ludoGuard = fn => async(req,res) => {res.setHeader("Access-Control-Allow-Origin","*");res.setHeader("Cache-Control","no-store");try{res.json(await fn(req.headers["x-ludo-game"],req.headers["x-ludo-seat"],req));}catch(e){res.status(400).json({error:e?.message||"تعذر تنفيذ الحركة"});}};
   app.get("/api/ludo/state",ludoGuard(async(id,seat)=>ludoEngine.state(id,seat)));
   app.post("/api/ludo/join",parseJson,ludoGuard(async(id,seat,req)=>ludoEngine.join(id,seat,req.body?.name)));
   app.post("/api/ludo/start",parseJson,ludoGuard(async(id,seat)=>ludoEngine.start(id,seat)));
@@ -105,6 +109,20 @@ export function registerWebApp(app, { replyService } = {}) {
   app.post("/api/xo-multi/move", parseJson, xoGuard(async (t,req) => moveMulti(t,req.body?.position)));
 
   app.get("/xo-ultra", (_req, res) => { res.setHeader("Content-Type", "text/html; charset=utf-8"); res.setHeader("Cache-Control", "no-store"); res.end(readFileSync(fileURLToPath(new URL("../public/xo-ultra.html", import.meta.url)))); });
+
+  const aiWeb = () => { if (!aiService) throw Error("خدمة الذكاء غير جاهزة"); return aiService; };
+  app.get('/ai-web.js', (_req,res)=>{res.setHeader('Content-Type','application/javascript; charset=utf-8');res.setHeader('Cache-Control','no-store');res.end(readFileSync(fileURLToPath(new URL('../public/ai-web.js',import.meta.url))));});
+  app.get('/api/ai/overview',guard(async uid=>aiWeb().overview(uid)));
+  app.get('/api/ai/models',guard(async (uid,req)=>aiWeb().models(uid,{refresh:req.query?.refresh==='1'})));
+  app.get('/api/ai/scan-status',guard(async uid=>aiWeb().scanStatus(uid)));
+  app.post('/api/ai/scan',parseJson,guard(async uid=>aiWeb().scan(uid)));
+  app.post('/api/ai/key',parseJson,guard(async(uid,req)=>aiWeb().saveKey(uid,req.body?.key)));
+  app.post('/api/ai/key/delete',parseJson,guard(async uid=>aiWeb().deleteKey(uid)));
+  app.post('/api/ai/model',parseJson,guard(async(uid,req)=>aiWeb().select(uid,req.body?.id)));
+  app.post('/api/ai/settings',parseJson,guard(async(uid,req)=>aiWeb().settings(uid,req.body||{})));
+  app.post('/api/ai/number',parseJson,guard(async(uid,req)=>aiWeb().saveNumber(uid,req.body?.id,req.body||{})));
+  app.post('/api/ai/test',parseJson,guard(async(uid,req)=>aiWeb().test(uid,req.body?.text)));
+  app.post('/api/ai/memory/clear',parseJson,guard(async uid=>aiWeb().clear(uid)));
 
   const reply = () => { if (!replyService) throw new Error('خدمة الردود غير جاهزة'); return replyService; };
   app.get('/auto-replies.js', (_req, res) => { res.setHeader('Content-Type','application/javascript; charset=utf-8'); res.setHeader('Cache-Control','no-store'); res.end(readFileSync(fileURLToPath(new URL('../public/auto-replies.js', import.meta.url)))); });
@@ -325,6 +343,7 @@ const HTML_PAGE = `<!DOCTYPE html>
 <title>لوحة البوت</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <link rel="stylesheet" href="/auto-replies.css">
+<script defer src="/ai-web.js" onload="if (typeof TAB !== 'undefined' && TAB === 'ai') render()"></script>
 <script defer src="/auto-replies.js" onload="if (typeof TAB !== 'undefined' && TAB === 'replies') render()"></script>
 <style>
 :root{
@@ -464,6 +483,7 @@ body{background:radial-gradient(ellipse at 5% 0%,rgba(192,141,255,.18),transpare
   <button class="tab" data-tab="channels">📺 القنوات</button>
   <button class="tab" data-tab="groups">👥 المجموعات</button>
   <button class="tab" data-tab="replies">💬 الردود</button>
+  <button class="tab" data-tab="ai">✦ الذكاء</button>
 </div>
 
 <div class="container">
@@ -488,7 +508,7 @@ const TOKEN = qs.get("token") || localStorage.getItem("fw_token") || "";
 if (qs.get("token")) localStorage.setItem("fw_token", qs.get("token"));
 
 let ST = { numbers:[], channels:[], groups:[], rules:[], waConnected:false };
-let TAB = ["groups","replies","channels"].includes(qs.get("section")) ? qs.get("section") : "rules";
+let TAB = ["groups","replies","channels","ai"].includes(qs.get("section")) ? qs.get("section") : "rules";
 let Q = "";
 const picCache = {};
 
@@ -527,7 +547,7 @@ async function load(){
     render();
   } catch(e){
     document.getElementById("subTitle").textContent = "⚠️ " + e.message;
-    if (TAB === "replies") render();
+    if (TAB === "replies" || TAB === "ai") render();
     else document.getElementById("view").innerHTML = '<div class="empty"><div class="big">🔒</div>' + esc(e.message) + '<br>افتح الرابط من داخل البوت مجدداً.</div>';
   }
 }
@@ -580,14 +600,14 @@ async function addChannel(jsonStr){
 
 // ─── التبويبات ──────────────────────────────────────────────────
 function selectTab(tab, shouldRender=true){
-  TAB = ["groups", "channels", "replies"].includes(tab) ? tab : "rules";
+  TAB = ["groups", "channels", "replies", "ai"].includes(tab) ? tab : "rules";
   document.querySelectorAll(".tab").forEach(t=>t.classList.toggle("act", t.dataset.tab===TAB));
   document.getElementById("fab").style.display = TAB==="rules" ? "" : "none";
   document.getElementById("srchIn").placeholder = TAB==="groups"
     ? "ابحث باسم المجموعة أو معرّفها…"
-    : TAB==="channels" ? "ابحث بالاسم… أو الصق رابط قناة واتساب" : TAB==="replies" ? "ابحث عن رد أو مفتاح…" : "ابحث باسم القاعدة…";
+    : TAB==="channels" ? "ابحث بالاسم… أو الصق رابط قناة واتساب" : TAB==="replies" ? "ابحث عن رد أو مفتاح…" : TAB==="ai" ? "ابحث عن نموذج أو رقم…" : "ابحث باسم القاعدة…";
   const title = document.querySelector(".hdr h1");
-  if (title?.firstChild) title.firstChild.nodeValue = TAB==="groups" ? "👥 إدارة المجموعات " : TAB==="replies" ? "💬 الردود التلقائية " : "📡 إدارة التحويلات ";
+  if (title?.firstChild) title.firstChild.nodeValue = TAB==="groups" ? "👥 إدارة المجموعات " : TAB==="replies" ? "💬 الردود التلقائية " : TAB==="ai" ? "✦ الذكاء الاصطناعي " : "📡 إدارة التحويلات ";
   if (shouldRender) render();
 }
 
@@ -608,6 +628,7 @@ function render(){
   const v = document.getElementById("view");
   if (TAB === "rules") return renderRules(v);
   if (TAB === "channels") return renderChannels(v);
+  if (TAB === "ai") return window.AiUI ? window.AiUI.render(v, Q) : (v.innerHTML = '<div class="empty">جارٍ تحميل قسم الذكاء…</div>');
   if (TAB === "replies") return window.RepliesUI ? window.RepliesUI.render(v, Q) : (v.innerHTML = '<div class="empty">جارٍ تحميل قسم الردود…</div>');
   renderGroups(v);
 }

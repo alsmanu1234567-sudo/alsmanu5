@@ -15,7 +15,7 @@ export function freeModelSlugs(html) {
   }
   return result;
 }
-export async function discoverNvidiaModels(key, {fetchImpl = fetch, concurrency = 4, timeoutMs = 60000, onProgress = () => {}} = {}) {
+export async function listFreeNvidiaModels(key, {fetchImpl = fetch} = {}) {
   if (!key) throw new Error('أضف مفتاح NVIDIA أولاً');
   const [catalog, freePage] = await Promise.all([
     fetchImpl(`${BASE}/models`, {headers: {Authorization: `Bearer ${key}`}, signal: AbortSignal.timeout(20000)}),
@@ -37,6 +37,10 @@ export async function discoverNvidiaModels(key, {fetchImpl = fetch, concurrency 
   const body = await catalog.json();
   if (!Array.isArray(body.data)) throw new Error('قائمة NVIDIA غير صالحة');
   const models = [...new Map(body.data.filter(m => typeof m.id === 'string' && free.has(norm(m.id))).map(m => [m.id, {id:m.id, name:m.id}])).values()];
+  return models;
+}
+export async function discoverNvidiaModels(key, {fetchImpl = fetch, concurrency = 4, timeoutMs = 60000, onProgress = () => {}} = {}) {
+  const models = await listFreeNvidiaModels(key, {fetchImpl});
   const results = new Array(models.length); let next = 0, done = 0;
   async function worker() {
     for (;;) {
