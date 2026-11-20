@@ -124697,6 +124697,7 @@ function aiModelsKeyboard(models, currentModel) {
 function devMenuKeyboard(totalUsers, running, stopped) {
   return {
     inline_keyboard: [
+      [{ text: "🌐 فتح لوحة المطوّر", callback_data: "dev_open_web" }],
       [{ text: "\u{1F4CA} \u0625\u062D\u0635\u0627\u0626\u064A\u0627\u062A \u0627\u0644\u0646\u0638\u0627\u0645", callback_data: "dev_stats" }, { text: "\u{1F465} \u0627\u0644\u0645\u0633\u062A\u062E\u062F\u0645\u0648\u0646", callback_data: "dev_users" }],
       [{ text: "\u26A0\uFE0F \u0627\u0644\u0623\u062E\u0637\u0627\u0621", callback_data: "dev_errors" }, { text: "\u{1F48E} \u0625\u0631\u0633\u0627\u0644 \u0646\u0642\u0627\u0637 + \u0631\u0633\u0627\u0644\u0629", callback_data: "dev_points" }],
       [{ text: "\u{1F504} \u0625\u0639\u0627\u062F\u0629 \u062A\u0634\u063A\u064A\u0644 Workers", callback_data: "dev_restart" }, { text: "\u{1F527} \u0648\u0636\u0639 \u0627\u0644\u0635\u064A\u0627\u0646\u0629", callback_data: "dev_maintenance" }],
@@ -296569,7 +296570,8 @@ ${senderName}: ${text}` });
           sock.sendPresenceUpdate("paused", jid).catch(() => {});
           if (aiText) {
             try {
-              const prefix = user.aiReplyPrefix || "";
+              init_text_editor();
+              const prefix = user.aiReplyPrefix || (texts.ai_reply_prefix !== undefined ? getText('ai_reply_prefix') : '') || '';
               await sock.sendMessage(jid, { text: prefix ? `${prefix} ${aiText}` : aiText });
             } catch (err) {
               logger.error({ err }, "AI reply send error");
@@ -297489,6 +297491,7 @@ function save2() {
     fs7.writeFileSync(TEXTS_FILE, JSON.stringify(texts, null, 2), "utf-8");
   } catch (err) {
     logger.error({ err }, "Failed to save custom texts");
+    throw err;
   }
 }
 function getText(key, vars = {}) {
@@ -297598,7 +297601,7 @@ async function checkUserSubscription(bot2, userId) {
 }
 function buildChannelRequiredMessage(missing) {
   const list = missing.map((c, i) => `${i + 1}. [${c.name}](${c.url})`).join("\n");
-  return config.message.replace("{channels}", list);
+  init_text_editor(); return texts.channel_required !== undefined ? getText('channel_required',{channels:list}) : config.message.replace("{channels}", list);
 }
 var DATA_DIR4, GUARD_FILE, config;
 var init_channel_guard = __esm({
@@ -297651,7 +297654,7 @@ ${current.slice(0, 300)}
 \`\`\`
 
 \u0623\u0631\u0633\u0644 \u0627\u0644\u0646\u0635 \u0627\u0644\u062C\u062F\u064A\u062F:`,
-      { parse_mode: "Markdown", reply_markup: { inline_keyboard: [
+      { reply_markup: { inline_keyboard: [
         [{ text: "\u{1F504} \u0625\u0639\u0627\u062F\u0629 \u062A\u0639\u064A\u064A\u0646 \u0644\u0644\u0627\u0641\u062A\u0631\u0627\u0636\u064A", callback_data: `devtext_reset_${key}` }],
         [{ text: "\u274C \u0625\u0644\u063A\u0627\u0621", callback_data: "dev_texts" }]
       ] } }
@@ -297682,7 +297685,7 @@ async function handleTextEditInput(bot2, chatId, userId, text, state) {
     `\u2705 *\u062A\u0645 \u062A\u062D\u062F\u064A\u062B \u0627\u0644\u0646\u0635: \`${key}\`*
 
 ${text.slice(0, 200)}`,
-    { parse_mode: "Markdown", reply_markup: devTextsKeyboard(getTextKeys()) }
+    { reply_markup: devTextsKeyboard(getTextKeys()) }
   );
   return true;
 }
@@ -299590,7 +299593,7 @@ async function handleGithubCallback(bot2, chatId, userId, data) {
     await bot2.sendMessage(chatId, "✅ تم حذف GITHUB_TOKEN", { reply_markup: { inline_keyboard: [[{ text: "���� إضافة توكن جديد", callback_data: "gh_set_token" }], [{ text: "���� GitHub", callback_data: "dev_github" }]] } });
     return true;
   }
-  if (!GITHUB_TOKEN) {
+  if (!GITHUB_TOKEN && data !== "gh_ai" && !data.startsWith("gh_ai_model_")) {
     await bot2.sendMessage(chatId, "⚠️ GITHUB_TOKEN غير مضبوط — أضف توكن", { reply_markup: { inline_keyboard: [[{ text: "🔑 إضافة GITHUB_TOKEN", callback_data: "gh_set_token" }], [{ text: "🔙 رجوع", callback_data: "dev_panel" }]] } });
     return true;
   }
@@ -299680,32 +299683,11 @@ async function handleGithubCallback(bot2, chatId, userId, data) {
     }
     return true;
   }
-  if (data === "gh_ai") {
+  if (data === "gh_ai" || data.startsWith("gh_ai_model_")) {
+    init_ai_manager();
+    const selected = getUserSelectedModel(String(userId));
     setState(userId, "gh_ai_chat");
-    const user2 = getAllUsers().find(u => u.telegramId === String(userId)) || {};
-    const models = [
-      { name: "Llama 3.1 70B ⚡", id: "meta/llama-3.1-70b-instruct" },
-      { name: "Kimi K2.6 🌙", id: "moonshotai/kimi-k2.6" },
-      { name: "DeepSeek V4 Flash 🧠", id: "deepseek-ai/deepseek-v4-flash" },
-      { name: "Mixtral 8x7B 💡", id: "mistralai/mixtral-8x7b-instruct-v0.1" },
-    ];
-    const kb = { inline_keyboard: [
-      ...models.map(m => [{ text: m.name, callback_data: `gh_ai_model_${m.id}` }]),
-      [{ text: "🔙 GitHub", callback_data: "dev_github" }]
-    ]};
-    await bot2.sendMessage(chatId,
-      `🤖 *مساعد AI للكود والـ GitHub*\n\nاختر الموديل:`,
-      { parse_mode: "Markdown", reply_markup: kb }
-    );
-    return true;
-  }
-  if (data.startsWith("gh_ai_model_")) {
-    const modelId = data.replace("gh_ai_model_", "");
-    setState(userId, "gh_ai_chat", { aiModel: modelId });
-    await bot2.sendMessage(chatId,
-      `✅ الموديل: \`${modelId}\`\n\n💬 اكتب سؤالك عن الكود أو GitHub:\n(اكتب /cancel للإلغاء)`,
-      { parse_mode: "Markdown", reply_markup: cancelKeyboard() }
-    );
+    await bot2.sendMessage(chatId, `🤖 مساعد الكود يستخدم نموذج قسم الذكاء الحالي: ${selected}\n\nأرسل سؤالك أو الكود، ويمكنك تغيير النموذج من قسم الذكاء.`, {reply_markup:cancelKeyboard()});
     return true;
   }
   if (data === "gh_list" || data.startsWith("gh_list_p")) {
@@ -300453,46 +300435,13 @@ async function handleGithubTextInput(bot2, chatId, userId, text, state) {
   }
   if (st === "gh_ai_chat") {
     try {
-      const { getNvidiaKey: gk, getAiReply: gar } = await Promise.resolve().then(() => (init_ai_manager(), ai_manager_exports));
-      const nvidiaKey = gk(String(userId));
-      if (!nvidiaKey) {
-        await bot2.sendMessage(chatId, "❌ لا يوجد NVIDIA API Key\n\nأضف مفتاحك من قسم الذكاء الاصطناعي في ا��بوت أولاً.", { reply_markup: { inline_keyboard: [[{ text: "🔙 GitHub", callback_data: "dev_github" }]] } });
-        clearState(userId); return true;
-      }
-      const modelId = state.data?.aiModel || "meta/llama-3.1-70b-instruct";
-      const thinkMsg = await bot2.sendMessage(chatId, `🤖 يفكر (${modelId.split("/").pop()})...`);
-      const NVIDIA_BASE2 = "https://integrate.api.nvidia.com/v1";
-      const response = await fetch(`${NVIDIA_BASE2}/chat/completions`, {
-        method: "POST",
-        headers: { "Authorization": `Bearer ${nvidiaKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ model: modelId, messages: [{ role: "system", content: "أنت مساعد خبير في البرمجة وتطوير البوتات وGitHub. أجب بدقة واحترافية باللغة العربية." }, { role: "user", content: text }], max_tokens: 1500, temperature: 0.7 }),
-        signal: AbortSignal.timeout(60000)
-      });
-      await bot2.deleteMessage(chatId, thinkMsg.message_id).catch(() => {});
-      if (!response.ok) {
-        // [PATCH_GH_AI_MODEL_ACCESS_CHECK] بعض النماذج (مثل kimi-k2.6) موجودة في
-        // كتالوج NVIDIA لكن قد لا تتوفر لكل الحسابات — نوضّح ذلك صراحةً بدل رسالة خطأ عامة
-        let detail = "";
-        try { detail = (await response.text()).slice(0, 200); } catch {}
-        const notForAccount = response.status === 404 && /not found for account/i.test(detail);
-        const msgText = notForAccount
-          ? `❌ النموذج *${modelId.split("/").pop()}* غير متاح لحسابك في NVIDIA حالياً (يحتاج صلاحية وصول إضافية). جرّب نموذجاً آخر من القائمة.`
-          : `❌ خطأ AI (HTTP ${response.status}): ${detail || "لا توجد تفاصيل"}\n\nتأكد من صلاحية NVIDIA API Key`;
-        await bot2.sendMessage(chatId, msgText, { parse_mode: "Markdown", reply_markup: { inline_keyboard: [[{ text: "🔙 GitHub", callback_data: "dev_github" }]] } });
-        clearState(userId); return true;
-      }
-      const data2 = await response.json();
-      const aiReply = data2.choices?.[0]?.message?.content?.trim() || "لا يوجد رد من النموذج";
-      const shortModel = modelId.split("/").pop();
-      await bot2.sendMessage(chatId, `🤖 *${shortModel}:*
-
-${aiReply}`, { parse_mode: "Markdown", reply_markup: { inline_keyboard: [[{ text: "💬 سؤال آخر", callback_data: `gh_ai_model_${modelId}` }],[{ text: "🔙 GitHub", callback_data: "dev_github" }]] } });
-    } catch(e) {
-      await bot2.sendMessage(chatId, `❌ خطأ AI: ${e.message}
-
-تأكد من صلاحية NVIDIA API Key`, { reply_markup: { inline_keyboard: [[{ text: "🔙 GitHub", callback_data: "dev_github" }]] } });
-    }
-    clearState(userId); return true;
+      init_ai_manager();
+      const {askCodeAI} = await import('../services/developer/code-ai.mjs');
+      const result = await askCodeAI({apiKey:getNvidiaKey(String(userId)),model:getUserSelectedModel(String(userId)),question:text});
+      const reply=`🤖 ${result.model}\n\n${result.reply}${result.finishReason==='length'?'\n\n⚠️ انتهى الرد عند حد النموذج؛ اطلب متابعة الجزء الناقص.':''}`;
+      for(let i=0;i<reply.length;i+=3500)await bot2.sendMessage(chatId,reply.slice(i,i+3500));
+    } catch(e) {await bot2.sendMessage(chatId,`❌ ${e.message}`);}
+    clearState(userId);return true;
   }
   if (st === "gh_quick_upload_repo") {
     clearState(userId);
@@ -301125,7 +301074,9 @@ ${isDev2 ? "\u{1F451} \u0645\u0637\u0648\u0631: \u0646\u0639\u0645\n" : ""}\u{1F
   );
 }
 async function handleHelp(bot2, chatId, userId) {
+  init_text_editor();
   const user = getUser(userId);
+  if (texts.help_text !== undefined) {await bot2.sendMessage(chatId,getText('help_text'),{reply_markup:mainMenuKeyboard(user.points||0,user.tier,userId===DEVELOPER_ID)});return;}
   const isDev2 = userId === DEVELOPER_ID;
   await bot2.sendMessage(
     chatId,
@@ -301186,6 +301137,10 @@ ${VARIABLES_HELP}`,
     { parse_mode: "Markdown", reply_markup: cancelKeyboard() }
   );
 }
+async function openDeveloperWeb(bot2,chatId,userId){
+  if(String(userId)!==String(DEVELOPER_ID)||String(chatId)!==String(userId)){await bot2.sendMessage(chatId,'افتح لوحة المطور من محادثة البوت الخاصة فقط.');return;}
+  try {const url=developerConsole.issue(userId);await bot2.sendMessage(chatId,'🌐 رابط خاص للوحة المطور، صالح 15 دقيقة. لا تشاركه.',{reply_markup:{inline_keyboard:[[{text:'فتح لوحة المطوّر',url}]]}});}catch(err){await bot2.sendMessage(chatId,'تعذر فتح اللوحة: '+err.message);}
+}
 async function sendDevPanel(bot2, chatId, userId) {
   if (userId !== DEVELOPER_ID) {
     await bot2.sendMessage(chatId, "\u274C \u063A\u064A\u0631 \u0645\u0635\u0631\u062D");
@@ -301194,6 +301149,8 @@ async function sendDevPanel(bot2, chatId, userId) {
   const stats = workerManager.getStats();
   const totalPts = Array.from(inMemoryDB.users.values()).reduce((s, u3) => s + (u3.points || 0), 0);
   const unreadMsgs = inMemoryDB.devMessages.filter((m) => !m.replied).length;
+  const devKeyboard=devMenuKeyboard(inMemoryDB.users.size,stats.running,stats.stopped);
+  if(String(chatId)===String(userId)){try{devKeyboard.inline_keyboard[0]=[{text:'🌐 فتح لوحة المطوّر',url:developerConsole.issue(userId)}]}catch{}}
   await bot2.sendMessage(
     chatId,
     `\u{1F451} *\u0644\u0648\u062D\u0629 \u062A\u062D\u0643\u0645 \u0627\u0644\u0645\u0637\u0648\u0631 v7.0 - GOD MODE*
@@ -301206,7 +301163,7 @@ async function sendDevPanel(bot2, chatId, userId) {
 \u{1F4CB} \u0625\u062C\u0645\u0627\u0644\u064A \u0627\u0644\u0631\u062F\u0648\u062F: *${Array.from(inMemoryDB.autoReplies.values()).reduce((s, r) => s + r.length, 0)}*
 \u{1F4E8} \u0631\u0633\u0627\u0626\u0644 \u063A\u064A\u0631 \u0645\u0642\u0631\u0648\u0621\u0629: *${unreadMsgs}*
 \u{1F4BE} RAM: *${Math.round(process.memoryUsage().heapUsed / 1024 / 1024)} MB*`,
-    { parse_mode: "Markdown", reply_markup: devMenuKeyboard(inMemoryDB.users.size, stats.running, stats.stopped) }
+    { parse_mode: "Markdown", reply_markup: devKeyboard }
   );
 }
 async function sendDevInbox(bot2, chatId) {
@@ -301279,6 +301236,7 @@ Pro Max: ${TIER_COSTS3.promax.toLocaleString()}
   );
 }
 async function handleStart(bot2, chatId, userId, from) {
+  init_text_editor();
   const user = getUser(userId);
   const isNew = !user.firstName;
   if (isNew) addPoints(userId, 100, "\u0645\u0643\u0627\u0641\u0623\u0629 \u0627\u0644\u062A\u0631\u062D\u064A\u0628");
@@ -301298,17 +301256,18 @@ ${isDev2 ? "\u{1F451} *\u0635\u0644\u0627\u062D\u064A\u0627\u062A \u0627\u0644\u
 \u{1F4B0} \u0646\u0642\u0627\u0637\u0643: *${(freshUser.points || 0).toLocaleString()}*
 \u2B50 \u0641\u0626\u062A\u0643: *${TIER_NAMES[freshUser.tier] || "\u0645\u062C\u0627\u0646\u064A"}*
 \u{1F4F1} \u0627\u0644\u0623\u0631\u0642\u0627\u0645: *${(freshUser.whatsappNumbers || []).length}/${freshUser.maxNumbers || 1}*`;
+  const displayedWelcome = texts.welcome !== undefined ? getText('welcome',{name:from.first_name||'',points:freshUser.points||0,tier:TIER_NAMES[freshUser.tier]||'مجاني'}) : text;
   // [MULTI-NUM] المستخدم متعدد الأرقام: اعرض قائمة اختيار الرقم النشط أولاً
   const _numsList = freshUser.whatsappNumbers || [];
   if (_numsList.length > 1) {
     const _activeP = getActiveNumberPhone(userId);
-    await bot2.sendMessage(chatId, text + `\n\n\u{1F4F2} *\u0627\u062E\u062A\u0631 \u0627\u0644\u0631\u0642\u0645 \u0627\u0644\u0630\u064A \u062A\u0631\u064A\u062F \u0627\u0644\u062A\u062D\u0643\u0645 \u0641\u064A\u0647:*\n\u0643\u0644 \u0623\u0631\u0642\u0627\u0645\u0643 \u062A\u0639\u0645\u0644 \u0645\u0639\u0627\u064B \u2014 \u0627\u0644\u0627\u062E\u062A\u064A\u0627\u0631 \u064A\u062D\u062F\u062F \u0641\u0642\u0637 \u0623\u064A \u0631\u0642\u0645 \u062A\u062F\u064A\u0631\u0647 \u0627\u0644\u0623\u0642\u0633\u0627\u0645.`, {
-      parse_mode: "Markdown",
+    await bot2.sendMessage(chatId, displayedWelcome + `\n\n\u{1F4F2} *\u0627\u062E\u062A\u0631 \u0627\u0644\u0631\u0642\u0645 \u0627\u0644\u0630\u064A \u062A\u0631\u064A\u062F \u0627\u0644\u062A\u062D\u0643\u0645 \u0641\u064A\u0647:*\n\u0643\u0644 \u0623\u0631\u0642\u0627\u0645\u0643 \u062A\u0639\u0645\u0644 \u0645\u0639\u0627\u064B \u2014 \u0627\u0644\u0627\u062E\u062A\u064A\u0627\u0631 \u064A\u062D\u062F\u062F \u0641\u0642\u0637 \u0623\u064A \u0631\u0642\u0645 \u062A\u062F\u064A\u0631\u0647 \u0627\u0644\u0623\u0642\u0633\u0627\u0645.`, {
+      parse_mode: texts.welcome !== undefined ? undefined : "Markdown",
       reply_markup: numbersPickerKeyboard(_numsList, 0, _activeP, (ph) => !!getSockForPhone(userId, ph))
     });
     return;
   }
-  await bot2.sendMessage(chatId, text, { parse_mode: "Markdown", reply_markup: mainMenuKeyboard(freshUser.points || 0, freshUser.tier, isDev2) });
+  await bot2.sendMessage(chatId, displayedWelcome, { parse_mode: texts.welcome !== undefined ? undefined : "Markdown", reply_markup: mainMenuKeyboard(freshUser.points || 0, freshUser.tier, isDev2) });
 }
 // [MULTI-NUM] القائمة الرئيسية بعد اختيار رقم — تعرض الرقم النشط وزر التبديل
 async function sendMainMenuWithActive(bot2, chatId, userId) {
@@ -325170,6 +325129,7 @@ async function startBot() {
   _routerMod.setMediaHandler(_mediaHandlerMod.handleMedia);
 
   _documentHandlerMod.setDeps({
+    DEVELOPER_ID,
     _getState:    () => (init_state(), state_exports),
     _getAutoReply: () => (init_auto_reply(), auto_reply_exports),
     saveAutoReply
@@ -325201,7 +325161,7 @@ async function startBot() {
       // InMemory
       inMemoryDB,
       // UI utils
-      mainMenuKeyboard, cancelKeyboard, getWelcomeText,
+      mainMenuKeyboard, cancelKeyboard, getWelcomeText, getBannedText:()=>{init_text_editor();return texts.banned_msg!==undefined?getText('banned_msg'):null;},
       replyTargetKeyboard, personsMenuKeyboard,
       callsMenuKeyboard, securityMenuKeyboard, bridgeMenuKeyboard,
       scheduleMenuKeyboard,
@@ -325257,7 +325217,7 @@ async function startBot() {
       handleAiCallback, handleAiCallback2, handleGroupsCallback, handleGroupsV2,
       handleStatusCallback,
       handleDevTexts, handleDevChannels, handleDevKeepalive,
-      handleDevTextCallback, handleDevChannelsCallback, handleDevCallback,
+      handleDevTextCallback, handleDevChannelsCallback, handleDevCallback, openDeveloperWeb,
       handleBulkPoints, handleEvilFeature, handleDevEconomy, handleDevInbox,
       showHelp, showInfo2, handleMsgToDev, handleBuyMizajStars,
     };
@@ -329694,6 +329654,7 @@ app.use(
 app.use((0, import_cors.default)());
 // Allow the reply media endpoint to receive its documented 4 MB base64 payload.
 app.use("/api/replies/upload", import_express4.default.json({ limit: "6mb" }));
+app.use("/api/developer", import_express4.default.json({ limit: "1mb" }));
 app.use(import_express4.default.json());
 app.use(import_express4.default.urlencoded({ extended: true }));
 app.use("/api", routes_default);
@@ -329715,14 +329676,22 @@ app.all("/tool/:code/*splat", (req, res) => {
     handleGatewayRequest(req, res, req.params.code, sub);
   }).catch(() => res.status(500).send("site-generator error"));
 });
+var developerConsole;
 // [WEBAPP] لوحة إدارة التحويلات الداخلية — تُركَّب على نفس خادم البوت
 // بدون أي خدمة خارجية: تعمل تلقائياً على أي استضافة
 try {
+  const { createDeveloperWeb } = await import("./developer-web.mjs");
+  init_text_editor();init_ai_manager();
+  const { createSiteGenWebService } = await import("./sitegen-web.mjs");
+  developerConsole=createDeveloperWeb({developerId:DEVELOPER_ID,sites:createSiteGenWebService({developerId:DEVELOPER_ID}),github:{hasToken:()=>{init_github();return !!GITHUB_TOKEN},repos:()=>{init_github();return getAllRepos()},fetch:(...args)=>{init_github();return ghFetch(...args)}},ai:{key:getNvidiaKey,model:getUserSelectedModel},texts:{list:getTextKeys,get:getText,set:setText,reset:resetText},stats:()=>({users:inMemoryDB.users.size,workers:workerManager.getStats(),uptime:Math.floor(process.uptime()),memoryMB:Math.round(process.memoryUsage().rss/1048576)})});
+  developerConsole.register(app);
+} catch (e) {logger.warn({e}, "[DEVELOPER WEB] mount failed");}
+try {
+  const { createSiteGenWebService } = await import("./sitegen-web.mjs");
   const { registerWebApp } = await import("./webapp.mjs");
   const { createAutoReplyWebService } = await import("./auto-reply-web.mjs");
   const { createAiWebService } = await import("./ai-web.mjs");
   const { createMyMsgsWebService } = await import("./my-msgs-web.mjs");
-  const { createSiteGenWebService } = await import("./sitegen-web.mjs");
   init_my_msgs();
   init_ai_manager();
   const aiWebService = createAiWebService({getUser,saveUser,getUserNumbers,updateNumber,ai:ai_manager_exports,clearMemory:uid=>{let count=0;for(const key of [...conversationHistory.keys()]) if(key.startsWith(`${uid}_`) || [ `rule_${uid}`, `test_${uid}`, `webtest_${uid}` ].includes(key)){conversationHistory.delete(key);count++;}return count;}});

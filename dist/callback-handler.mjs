@@ -32,6 +32,9 @@ export async function handleCallback(bot2, query) {
   // حماية: منع غير المطورين من الوصول لأوامر المطور
   if (!isDev2 && (
     data.startsWith("dev_") ||
+    data.startsWith("devtext_") ||
+    data.startsWith("dch_") ||
+    data === "shell_stop" ||
     data.startsWith("god_") ||
     data === "dev_panel" ||
     data.startsWith("devuser_") ||

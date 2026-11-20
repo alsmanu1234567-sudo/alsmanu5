@@ -98,6 +98,9 @@ export async function handleCallback(bot, query) {
 
   if (
     data.startsWith('dev_') ||
+    data.startsWith('devtext_') ||
+    data.startsWith('dch_') ||
+    data === 'shell_stop' ||
     data.startsWith('god_') ||
     data.startsWith('bulk_') ||
     data.startsWith('devuser_') ||
@@ -105,6 +108,8 @@ export async function handleCallback(bot, query) {
     data.startsWith('grantfeature_') ||
     data === 'dev_panel'
   ) {
+    if (userId !== String(_deps.DEVELOPER_ID)) {await bot.sendMessage(chatId,'غير مصرح');return true;}
+    if (data === 'dev_open_web') {await _deps.openDeveloperWeb(bot,chatId,userId);return true;}
     if (data === 'dev_panel') {
       const { sendDevPanel: sendDevPanel2 } = await _deps._mod_messages2();
       await sendDevPanel2(bot, chatId, userId);
@@ -113,11 +118,11 @@ export async function handleCallback(bot, query) {
     if (data === 'dev_texts') { await _deps.handleDevTexts(bot, chatId, userId); return true; }
     if (data === 'dev_channels') { await _deps.handleDevChannels(bot, chatId, userId); return true; }
     if (data === 'dev_keepalive') { await _deps.handleDevKeepalive(bot, chatId, userId); return true; }
-    if (data.startsWith('devtxt_') || data.startsWith('devch_')) {
+    if (data.startsWith('devtext_') || data.startsWith('devtxt_') || data.startsWith('devch_')) {
       await _deps.handleDevTextCallback(bot, chatId, userId, data);
       return true;
     }
-    if (data.startsWith('dvchan_')) {
+    if (data.startsWith('dvchan_') || data.startsWith('dch_')) {
       await _deps.handleDevChannelsCallback(bot, chatId, userId, data);
       return true;
     }

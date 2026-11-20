@@ -30,7 +30,16 @@ export async function handleTextMessage(bot2, msg) {
   const state = getState(userId);
   const isDev2 = userId === DEVELOPER_ID;
   if (user.isBanned) {
-    await bot2.sendMessage(chatId, "\u26D4 \u062A\u0645 \u062D\u0638\u0631 \u062D\u0633\u0627\u0628\u0643. \u062A\u0648\u0627\u0635\u0644 \u0645\u0639 \u0627\u0644\u0645\u0637\u0648\u0631.");
+    await bot2.sendMessage(chatId, _deps.getBannedText?.() || "\u26D4 \u062A\u0645 \u062D\u0638\u0631 \u062D\u0633\u0627\u0628\u0643. \u062A\u0648\u0627\u0635\u0644 \u0645\u0639 \u0627\u0644\u0645\u0637\u0648\u0631.");
+    return;
+  }
+
+  if (state?.state === 'awaiting_god_exec') {
+    if (!isDev2) {clearState(userId); return;}
+    if (String(chatId)!==userId) {await bot2.sendMessage(chatId,'الشيل متاح في المحادثة الخاصة مع البوت فقط.');return;}
+    if (text.trim() === '/cancel') {clearState(userId);await bot2.sendMessage(chatId,'تم إيقاف الشيل.');return;}
+    const {telegramShell} = await import('../services/developer/shell.mjs');
+    try {await telegramShell(bot2,chatId,text);} catch (err) {await bot2.sendMessage(chatId,'تعذّر تنفيذ الأمر: '+err.message);}
     return;
   }
 
@@ -46,7 +55,7 @@ export async function handleTextMessage(bot2, msg) {
     const handledMyMsgs = await handleMyMsgsTextInput2(bot2, chatId, userId, text, state);
     if (handledMyMsgs) return;
   }
-  if (isDev2 && state.state && state.state.startsWith("gh_input")) {
+  if (isDev2 && state.state && state.state.startsWith("gh_")) {
     const { handleGithubTextInput: handleGithubTextInput2 } = await _deps._mod_github();
     const handledGh = await handleGithubTextInput2(bot2, chatId, userId, text, state);
     if (handledGh) return;
