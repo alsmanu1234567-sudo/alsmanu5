@@ -279,9 +279,9 @@ const HTML_PAGE = `<!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="theme-color" content="#0b1220">
-<title>إدارة التحويلات</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#171331">
+<title>لوحة البوت</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
 :root{
@@ -385,16 +385,34 @@ body{padding-bottom:88px;font-size:15px;line-height:1.5}
 .auto-post-preview{font-size:12px;line-height:1.8;overflow-wrap:anywhere;margin-top:8px;color:var(--mut)}
 .auto-post-preview a{color:var(--acc);text-decoration:underline}
 .auto-post-error{color:var(--del);font-size:12px;margin-top:6px;overflow-wrap:anywhere}
+
+/* A calmer, brighter interface with comfortable touch targets. */
+:root{--bg:#100f23;--card:#1d1a38;--card2:#272341;--line:#40395d;--txt:#f8f5ff;--mut:#b6aecf;--acc:#b8a1ff;--accD:#211546;--ok:#65e0bd;--r:18px}
+html,body{background:var(--bg)}
+body{background:radial-gradient(ellipse at 5% 0%,rgba(192,141,255,.18),transparent 28rem),radial-gradient(ellipse at 95% 26%,rgba(65,196,191,.09),transparent 30rem),var(--bg);background-attachment:fixed}
+.hdr{background:rgba(25,20,48,.92);padding:15px 18px 12px;border-bottom:1px solid rgba(191,167,255,.18)}
+.brandline{display:flex;align-items:center;gap:11px}.brandicon{display:grid;place-items:center;width:43px;height:43px;border-radius:15px;background:linear-gradient(135deg,#f1b3dc,#a894ff);color:#28153e;font-size:24px;box-shadow:0 8px 28px #9c75ef4d}
+.brandeyebrow{font-size:11px;color:#d5b5ff;letter-spacing:.03em}.hdr h1{font-size:19px}.header-refresh{margin-inline-start:auto;border:1px solid var(--line);background:var(--card2);color:var(--txt);width:42px;height:42px;border-radius:14px;font-size:23px;cursor:pointer}
+.srch input{box-shadow:0 10px 28px #06041722}.tabs{gap:5px;background:#1d1936;border-radius:18px}.tab{min-height:46px}.tab.act{background:linear-gradient(135deg,#c2aaff,#9f8df3);color:#241642;box-shadow:0 4px 15px #9679ef55}
+.card{background:linear-gradient(135deg,#25203f,#1d1a36);box-shadow:0 10px 28px #08041336;transition:transform .18s,border-color .18s}.card:hover{border-color:#806fb5;transform:translateY(-2px)}
+.btn{min-height:44px}.btn-p{background:linear-gradient(135deg,#d3b3ff,#a894ff);color:#211438}.btn-s{background:#302a4d}.fab{max-width:620px;margin:auto}.fab .btn{box-shadow:0 10px 30px #9470ef55}
+.sheet{background:#1c1935;box-shadow:0 -18px 70px #05031099;scroll-behavior:smooth}.group-detail-block{background:#25213d;box-shadow:0 8px 22px #0603172b;scroll-margin-top:14px}.group-detail-title{color:#eee5ff}.auto-post-item{background:#1c1a34}
+.group-shortcuts{display:flex;gap:8px;overflow-x:auto;padding:6px 0 14px;scrollbar-width:thin}.group-shortcuts button{flex:none;min-height:38px;padding:8px 12px;background:#373052;color:#e9e0ff;border:1px solid #5a4e80;border-radius:999px;font-size:12px;cursor:pointer}.group-shortcuts button:focus-visible,.btn:focus-visible,.tab:focus-visible{outline:3px solid #efc7ff;outline-offset:2px}
+.group-description{white-space:pre-wrap}.group-detail-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:8px}
+.fld select,.fld input[type=number]{width:100%;background:var(--card2);border:1.5px solid var(--line);border-radius:13px;padding:12px;color:var(--txt);font:inherit}
+@media(min-width:760px){.hdr,.srch,.tabs,.container{padding-left:max(24px,calc((100% - 1000px)/2));padding-right:max(24px,calc((100% - 1000px)/2))}.srch,.tabs{margin-left:0;margin-right:0}.sheet{left:50%;right:auto;width:min(760px,96vw);transform:translate(-50%,105%)}.sheet.open{transform:translate(-50%,0)}}
+@media(prefers-reduced-motion:reduce){*,*:before,*:after{scroll-behavior:auto!important;animation-duration:.01ms!important;transition-duration:.01ms!important}}
+
 </style>
 </head>
 <body>
 <div class="hdr">
-  <h1>📡 إدارة التحويلات <span class="dot off" id="waDot"></span></h1>
+  <div class="brandline"><span class="brandicon">✦</span><div><span class="brandeyebrow">لوحة البوت</span><h1>إدارة واتساب <span class="dot off" id="waDot"></span></h1></div><button class="header-refresh" type="button" onclick="load()" aria-label="تحديث البيانات">↻</button></div>
   <div class="sub" id="subTitle">جارٍ التحميل…</div>
 </div>
 
 <div class="srch">
-  <input id="srchIn" type="text" placeholder="ابحث بالاسم… أو الصق رابط قناة واتساب" autocomplete="off">
+  <input id="srchIn" type="text" placeholder="ابحث عن مجموعة أو قناة أو قاعدة…" autocomplete="off">
   <span class="ic">🔍</span>
 </div>
 
@@ -742,7 +760,8 @@ function renderGroupDetails(){
     ' · المشرفون: '+Number(detail.adminCount||0).toLocaleString("ar")+'</div>' +
     '<div class="group-detail-line">تاريخ الإنشاء: '+created+'</div>' +
     '<div class="group-detail-line">إرسال الأعضاء: '+(detail.locked?"للمشرفين فقط":"مفتوح للأعضاء")+'</div>' +
-    '<div class="group-detail-line">الوصف: '+esc(detail.description||"لا يوجد وصف")+'</div></div>' +
+    '<div class="group-detail-line group-description">الوصف: '+esc(detail.description||"لا يوجد وصف")+'</div>' +
+    '<div class="group-detail-actions"><button class="btn btn-s btn-sm" type="button" data-copy-description '+(detail.description?"":"disabled")+'>📋 نسخ الوصف</button></div></div>' +
     '<div class="group-detail-block"><div class="group-detail-title">الأعضاء ('+members.length+(detail.membersTruncated?"+":"")+')</div>' +
     '<div class="group-member-list">'+memberRows+'</div>' +
     (detail.membersTruncated?'<div class="meta" style="white-space:normal">تُعرض أول 500 عضوية فقط.</div>':"")+'</div>' +
@@ -862,6 +881,20 @@ function renderGroupDetails(){
   sh.querySelectorAll("[data-reminder-delete]").forEach(button=>
     button.addEventListener("click", ()=>deleteGroupReminder(button.dataset.reminderDelete))
   );
+  const blocks = Array.from(sh.querySelectorAll('.group-detail-block'));
+  const shortcuts = document.createElement('nav');
+  shortcuts.className = 'group-shortcuts';
+  shortcuts.setAttribute('aria-label', 'الانتقال إلى إعدادات المجموعة');
+  blocks.forEach(block => {
+    const title = block.querySelector('.group-detail-title')?.textContent;
+    if (!title) return;
+    const button = document.createElement('button');
+    button.type = 'button'; button.textContent = title;
+    button.addEventListener('click', () => block.scrollIntoView({behavior:'smooth',block:'start'}));
+    shortcuts.appendChild(button);
+  });
+  if (blocks[0]) blocks[0].before(shortcuts);
+  sh.querySelector('[data-copy-description]')?.addEventListener('click', copyGroupDescription);
   sh.querySelectorAll("[data-group-action]").forEach(button=>{
     button.addEventListener("click", ()=>runGroupAdminAction(button.dataset.groupAction));
   });
@@ -1231,6 +1264,21 @@ async function showGroupInvite(){
   } finally {
     if (button) { button.disabled = false; button.textContent = "عرض رابط الدعوة"; }
   }
+}
+
+async function copyGroupDescription(){
+  const text = GROUP_DETAIL?.description;
+  if (!text) return toast('لا يوجد وصف لنسخه');
+  try {
+    if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(text);
+    else {
+      const input = document.createElement('textarea'); input.value = text;
+      input.style.position = 'fixed'; input.style.opacity = '0'; document.body.appendChild(input);
+      input.select(); const ok = document.execCommand('copy'); input.remove();
+      if (!ok) throw new Error('copy failed');
+    }
+    toast('✅ تم نسخ وصف المجموعة');
+  } catch { toast('تعذّر النسخ من هذا المتصفح'); }
 }
 
 async function copyGroupInvite(){

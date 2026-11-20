@@ -35,7 +35,8 @@ export async function handleDocument(bot2, msg2) {
         let _cnt = 0;
         for (const _r of _arr.slice(0, 100)) {
           if (_r.trigger && _r.replyContent !== undefined) {
-            try { _sar(_uid, _r); _cnt++; } catch { saveAutoReply(_uid, _r); _cnt++; }
+            const _copy = { ..._r }; delete _copy.id;
+            try { _sar(_uid, _copy); _cnt++; } catch { saveAutoReply(_uid, _copy); _cnt++; }
           }
         }
         await bot2.sendMessage(msg2.chat.id, "\u2705 \u062A\u0645 \u0627\u0633\u062A\u064A\u0631\u0627\u062F " + _cnt + " \u0631\u062F\u0651\u0627\u064B \u0645\u0646 \u0627\u0644\u0645\u0644\u0641!");

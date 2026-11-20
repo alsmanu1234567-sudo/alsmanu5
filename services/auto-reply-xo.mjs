@@ -75,7 +75,7 @@ export function createAutoReplyXoGame({
   }
 
   async function render(sock, game, notice = "") {
-    const cells = game.board.map((mark, index) => mark || String(index + 1));
+    const cells = game.board.map((mark, index) => mark === "X" ? "❌" : mark === "O" ? "⭕" : String(index + 1));
     const boardText = [
       ` ${cells[0]} │ ${cells[1]} │ ${cells[2]} `,
       "───┼───┼───",
@@ -101,7 +101,7 @@ export function createAutoReplyXoGame({
     await sendInteractiveFn(sock, game.chatId, {
       headerTitle: "🎮 لعبة X و O",
       text: `${status}\n\n${boardText}`,
-      footer: "أنت X  •  البوت O",
+      footer: "❌ أنت  •  ⭕ البوت",
       buttons,
     });
   }
@@ -125,8 +125,9 @@ export function createAutoReplyXoGame({
     const [, gameId, action, value] = id.split(":");
     const key = gameKey(String(ownerId || ""), gameId || "");
     const game = games.get(key);
-    if (!game) return true;
-    if (game.chatId !== String(chatId) || game.playerId !== String(playerId)) return true;
+    if (!game) { await sock.sendMessage(chatId, { text: "انتهت اللعبة أو لم تعد متاحة. ابدأ لعبة جديدة." }); return true; }
+    if (game.chatId !== String(chatId)) return true;
+    if (game.playerId !== String(playerId)) { await sock.sendMessage(chatId, {text:"هذه اللعبة مخصّصة للاعب الذي بدأها."}); return true; }
 
     if (action === "cancel") {
       games.delete(key);

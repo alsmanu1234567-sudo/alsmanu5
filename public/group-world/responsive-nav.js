@@ -33,3 +33,11 @@
     if (!event.matches) setOpen(false);
   });
 })();
+
+// Filter the many dashboard sections without changing their existing actions.
+document.getElementById('navSearch')?.addEventListener('input', (event) => {
+  const term = event.target.value.trim().toLocaleLowerCase('ar');
+  document.querySelectorAll('#mainNav .nav-item').forEach(button => {
+    button.hidden = !!term && !button.textContent.toLocaleLowerCase('ar').includes(term);
+  });
+});

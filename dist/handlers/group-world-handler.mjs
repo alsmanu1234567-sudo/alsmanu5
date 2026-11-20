@@ -5,7 +5,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { listButton, quickReply, sendInteractive } from "../../services/interactive.js";
+import { listButton, quickReply, sendInteractive, extractInteractiveResponseId } from "../../services/interactive.js";
 import {
   groupWorldService as defaultGroupWorldService,
   groupWorldDayKey,
@@ -58,6 +58,8 @@ function unwrappedMessageContent(message) {
 
 function messageInteractionId(message) {
   const content = unwrappedMessageContent(message);
+  const extracted = extractInteractiveResponseId(message);
+  if (extracted?.startsWith("gw:")) return extracted;
   const direct = [
     content.buttonsResponseMessage?.selectedButtonId,
     content.listResponseMessage?.singleSelectReply?.selectedRowId,
@@ -421,16 +423,16 @@ function formatMemberLine(member, index) {
 }
 
 function xoBoardText(game) {
-  const cells = game.board.map((cell, index) => cell || String(index + 1));
+  const cells = game.board.map((cell, index) => cell === "X" ? "❌" : cell === "O" ? "⭕" : String(index + 1));
   return `${cells.slice(0, 3).join(" │ ")}\n───┼───┼───\n${cells.slice(3, 6).join(" │ ")}\n───┼───┼───\n${cells.slice(6, 9).join(" │ ")}`;
 }
 
 async function sendXoBoard(sock, groupId, game) {
   const playerName = (id) => game.names?.[id] || id?.split("@")[0] || "لاعب";
-  let text = `🎮 مباراة X و O\nX: ${playerName(game.xPlayer)}\nO: ${playerName(game.oPlayer)}\n\n${xoBoardText(game)}\n\n`;
+  let text = `🎮 *مباراة X و O*\n❌ ${playerName(game.xPlayer)}\n⭕ ${playerName(game.oPlayer)}\n\n${xoBoardText(game)}\n\n`;
   const buttons = [];
   if (game.status === "active") {
-    text += `الدور الآن: ${game.turn === game.xPlayer ? "X" : "O"} — ${playerName(game.turn)}\nاضغط رقم الخانة مباشرة.`;
+    text += `الدور الآن: ${game.turn === game.xPlayer ? "X" : "O"} — ${playerName(game.turn)}\nاختر رقم الخانة الفارغة من الأزرار أدناه.`;
     for (const [index, cell] of game.board.entries()) {
       if (!cell) buttons.push({
         id: `gw:xo:${game.id}:move:${index}`,
@@ -1139,7 +1141,7 @@ export async function handleGroupWorldMessage(userId, sock, message, eventType =
   const text = messageText(message);
   const interactionId = messageInteractionId(message);
   const fromMe = message?.key?.fromMe === true;
-  if (fromMe && (eventType !== "notify" || !text.startsWith("."))) return null;
+  if (fromMe && (eventType !== "notify" || (!text.startsWith(".") && !interactionId))) return null;
   if (fromMe && !(await isCurrentSocketOwnerMessage(groupId, sock, message))) return null;
   const memberId = fromMe
     ? await ownerMemberId(groupId, sock, message)

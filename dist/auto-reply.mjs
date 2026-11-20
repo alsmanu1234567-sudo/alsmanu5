@@ -1,3 +1,4 @@
+import { parseInteractiveConfig } from "../services/auto-reply-interactive.mjs";
 // ============================================================
 // dist/auto-reply.mjs — قسم الردود التلقائية (ملف مستقل)
 // WhatsApp Bot Pro — فُصل عن dist/index.mjs للتطوير المستقل
@@ -107,6 +108,13 @@ async function handleReplyTypeCallbackInternal(bot2, chatId, userId, data) {
     return;
   }
 
+  if (['rtype_button_quick','rtype_button_url','rtype_button_list'].includes(data)) {
+    const replyType = data.slice(6);
+    setState(userId, 'awaiting_button_config', { replyType });
+    const details = replyType === 'button_url' ? 'عنوان الزر|https://example.com' : 'عنوان الزر|النص الذي سيرسله البوت عند الضغط';
+    await bot2.sendMessage(chatId, `🔘 إعداد الأزرار\n\nأرسل نص الرسالة في السطر الأول، ثم كل خيار في سطر بالشكل:\n${details}\n\nمثال:\nأهلاً بك، اختر خياراً:\nالخيار الأول|${replyType === 'button_url' ? 'https://example.com' : 'هذا هو الرد الأول'}\n\nمن 1 إلى 9 خيارات.`);
+    return;
+  }
   if (data === "rtype_xo") {
     const state = getState(userId);
     setState(userId, "awaiting_reply_target", {
@@ -1313,11 +1321,7 @@ export async function handleAutoReplyCallback(bot2, chatId, userId, data) {
       return true;
     }
     const exported = JSON.stringify(replies, null, 2);
-    if (exported.length < 4000) {
-      await bot2.sendMessage(chatId, `\`\`\`json\n${exported.slice(0, 3900)}\n\`\`\``, { parse_mode: "Markdown" });
-    } else {
-      await bot2.sendMessage(chatId, `✅ لديك ${replies.length} رد. حجم البيانات: ${(exported.length / 1024).toFixed(1)} KB`);
-    }
+    await bot2.sendDocument(chatId, Buffer.from(exported, 'utf8'), {caption:`✅ تصدير ${replies.length} رد`, contentType:'application/json'}, {filename:'auto-replies.json',contentType:'application/json'});
     return true;
   }
   if (data === "reply_import") {
@@ -1347,6 +1351,12 @@ export async function handleAutoReplyCallback(bot2, chatId, userId, data) {
       replyContent: "أنت مساعد ودي. أجب باختصار.",
       target: "all", scope: "private", isActive: true, dailyLimit: 10, perUserLimit: 2
     }, null, 2);
+    const buttonEx = JSON.stringify({
+      trigger: 'قائمة', triggerType: 'exact', caseSensitive: false,
+      replyType: 'button_quick',
+      replyContent: JSON.stringify({text:'أهلاً! اختر:', entries:[{label:'الخدمات', value:'إليك خدماتنا'}]}),
+      target: 'all', targetNumbers: [], scope: 'both', isActive: true,
+    }, null, 2);
     const guide = [
       "🤖 *دليل الذكاء الاصطناعي — بوت واتسآب*",
       "أرسل هذا لأي AI ليفهم هيكل البوت ويبني ردوداً جاهزة.",
@@ -1355,12 +1365,16 @@ export async function handleAutoReplyCallback(bot2, chatId, userId, data) {
       "## 2. هيكل ملف الرد (JSON)",
       "```json\n" + sampleJson + "\n```",
       "## 3. شرح الحقول",
-      "- **trigger**: الكلمة المفتاحية\n- **triggerType**: [exact | contains | starts | ends | regex]\n- **replyType**: [text | ai | reaction | morphing | rotating | image | audio | video | document | sticker]\n- **replyContent**: نص أو URL أو \"__ai_default__\" للذكاء\n- **target**: [all | specific | multiple] | **scope**: [both | private | group]\n- **dailyLimit**: حد يومي (0 = بلا حد) | **perUserLimit**: حد لكل شخص كل 8ساعات",
+      "- **trigger**: الكلمة المفتاحية\n- **triggerType**: [exact | contains | starts | ends | regex]\n- **replyType**: [text | ai | reaction | morphing | rotating | image | audio | video | document | sticker | xo | button_quick | button_url | button_list]\n- **replyContent**: نص أو URL أو \"__ai_default__\" للذكاء\n- **target**: [all | specific | multiple | self] | **scope**: [both | private | groups]\n- **dailyLimit**: حد يومي (0 = بلا حد) | **perUserLimit**: حد لكل شخص كل 8ساعات",
       "## 4. مثال رد دوري",
       "```json\n" + rotEx + "\n```",
       "## 5. مثال رد بالذكاء الاصطناعي",
       "```json\n" + aiEx + "\n```",
-      "## 6. طريقة الاستيراد",
+      "## 6. أنواع الأزرار (replyContent سلسلة JSON)",
+      'أنواع الأزرار: button_quick (يرد بالنص عند الضغط)، button_url (رابط)، button_list (قائمة ترد بالنص). في replyContent ضع نص JSON كسلسلة: {"text":"اختر","entries":[{"label":"نعم","value":"تم الاختيار"}]}. في زر الرابط تكون value رابط http أو https. كل عنوان 24 حرفاً كحد أقصى و1–9 خيارات. هدف self لرسائلك أنت. لا تستخدم group؛ استخدم groups.',
+      "مثال رد بأزرار صالح للاستيراد:",
+      "```json\n" + buttonEx + "\n```",
+      "## 7. طريقة الاستيراد",
       "أرسل ملف .json بهيكل [{...}] — أو الصق النص — في زر \"استيراد الردود\"."
     ].join("\n");
     const chunks = [];
@@ -1636,6 +1650,15 @@ export async function handleAutoReplyTextInput(bot2, chatId, userId, text, state
     );
     return true;
   }
+  if (state.state === 'awaiting_button_config') {
+    const current = getState(userId);
+    try {
+      const config = parseInteractiveConfig(current.data.replyType, text);
+      setState(userId, 'awaiting_reply_target', { replyContent: JSON.stringify(config) });
+      await bot2.sendMessage(chatId, '✅ تم إعداد الأزرار. اختر هدف الرد:', {reply_markup:_deps.replyTargetKeyboard()});
+    } catch (error) { await bot2.sendMessage(chatId, `❌ ${error.message}`); }
+    return true;
+  }
   if (state.state === "awaiting_specific_numbers") {
     const lines = text.split(/[\n,\s]+/).map((l) => l.replace(/\D/g, "")).filter((l) => l.length >= 7);
     if (lines.length === 0) {
@@ -1833,7 +1856,7 @@ export async function handleAutoReplyTextInput(bot2, chatId, userId, text, state
       const arr = Array.isArray(imported) ? imported : [imported];
       let count = 0;
       for (const r of arr) {
-        if (r.trigger) { saveAutoReply(userId, r); count++; }
+        if (r.trigger) { const copy = { ...r }; delete copy.id; saveAutoReply(userId, copy); count++; }
       }
       clearState(userId);
       await bot2.sendMessage(chatId, `✅ تم استيراد ${count} رد بنجاح!`);

@@ -254,3 +254,14 @@ test("disabled group world silently ignores dot commands and normal messages", a
   await handleGroupWorldMessage('web-owner', sock, message('disabled-normal', 'ordinary.message', {fromMe:false, participant:MEMBER, participantAlt:MEMBER}), 'notify');
   assert.equal(sent.length, 0);
 });
+
+test('linked owner can press an XO button as a fromMe interactive message', async (t) => {
+  const { service, sock, sent } = await setup(t);
+  const start = {key:{id:'fromme-xo-start',remoteJid:GROUP,fromMe:true,participant:OWNER_LID,participantAlt:OWNER_PHONE},message:{extendedTextMessage:{text:'.اكس_او @249000000002',contextInfo:{mentionedJid:[MEMBER]}}}};
+  await handleGroupWorldMessage('web-owner',sock,start,'notify');
+  const board=sent.find(x=>x.rawInteractive).rawInteractive.viewOnceMessage.message.interactiveMessage;
+  const id=JSON.parse(board.nativeFlowMessage.buttons[0].buttonParamsJson).id;
+  await handleGroupWorldMessage('web-owner',sock,{key:{id:'fromme-xo-click',remoteJid:GROUP,fromMe:true,participant:OWNER_LID,participantAlt:OWNER_PHONE},message:{interactiveResponseMessage:{nativeFlowResponseMessage:{name:'quick_reply',paramsJson:JSON.stringify({id})}}}},'notify');
+  const game=(await service.getGroup(GROUP)).games.find(g=>g.id===id.split(':')[2]);
+  assert.equal(game.board[0],'X');
+});

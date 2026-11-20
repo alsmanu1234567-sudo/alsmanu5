@@ -58,8 +58,8 @@ test("auto-reply XO sends native move buttons and applies a move plus bot respon
 
   assert.equal(await game.handle(sock, "group@g.us", "player@s.whatsapp.net", moveId, "owner"), true);
   assert.equal(sent.length, 2);
-  assert.match(sent[1].text, /X/);
-  assert.match(sent[1].text, /O/);
+  assert.match(sent[1].text, /❌/);
+  assert.match(sent[1].text, /⭕/);
   const nextMoveIds = sent[1].buttons.map((button) => JSON.parse(button.buttonParamsJson).id);
   assert.equal(nextMoveIds.some((id) => id.endsWith(":move:0")), false);
   assert.equal(nextMoveIds.length, 8, "the player's and bot's occupied cells disappear, with cancel remaining");

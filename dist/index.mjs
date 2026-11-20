@@ -1,3 +1,4 @@
+import { sendInteractiveAutoReply, resolveInteractiveAnswer } from '../services/auto-reply-interactive.mjs';
 import { setMessageCutoff } from "../engine/message-cutoff.mjs";
 import { isGeneratedAutoReply, protectAutoReplySocket, matchesReplyTarget } from '../services/auto-reply-routing.mjs';
 // PATCH_MASTER_FIX_APPLIED
@@ -124759,6 +124760,8 @@ function replyTypeKeyboard() {
       [{ text: "\u{1F3AC} \u0641\u064A\u062F\u064A\u0648", callback_data: "rtype_video" }, { text: "\u{1F4C4} \u0645\u0644\u0641", callback_data: "rtype_document" }, { text: "\u{1F60A} \u0645\u0644\u0635\u0642", callback_data: "rtype_sticker" }],
       [{ text: "\u{1F916} \u0631\u062F \u0628\u0627\u0644\u0630\u0643\u0627\u0621 \u0627\u0644\u0627\u0635\u0637\u0646\u0627\u0639\u064A (NVIDIA)", callback_data: "rtype_ai" }],
       [{ text: "\u{1F3AE} \u0644\u0639\u0628\u0629 X \u0648 O \u0636\u062F \u0627\u0644\u0628\u0648\u062A", callback_data: "rtype_xo" }],
+      [{ text: "🔘 أزرار رد سريع", callback_data: "rtype_button_quick" }, { text: "🔗 أزرار روابط", callback_data: "rtype_button_url" }],
+      [{ text: "📋 قائمة خيارات", callback_data: "rtype_button_list" }],
       backAndHome()
     ]
   };
@@ -293962,6 +293965,11 @@ function registerMessageHandler(sock, userId) {
           if (reply.langFilter === "arabic" && !isArabic) continue;
           if (reply.langFilter === "english" && isArabic) continue;
         }
+        if (['button_quick', 'button_url', 'button_list'].includes(reply.replyType)) {
+          try { await sendInteractiveAutoReply(sock, jid, reply); }
+          catch (err) { logger.error({err}, 'Interactive auto-reply failed'); }
+          break;
+        }
         if (reply.replyType === "xo") {
           try {
             const { startAutoReplyXoGame } = await import("../services/auto-reply-xo.mjs");
@@ -294061,6 +294069,20 @@ function registerMessageHandler(sock, userId) {
         break;
       }
       }
+      async function handleAutoReplyInteraction(interactionId) {
+        if (interactionId?.startsWith('arxo:')) {
+          const { handleAutoReplyXoInteraction } = await import('../services/auto-reply-xo.mjs');
+          await handleAutoReplyXoInteraction(sock, jid, msg.key?.participant || msg.key?.participantAlt || jid, interactionId, userId);
+          return true;
+        }
+        const match = interactionId?.match(/^arbtn:([^:]+):(\d+)$/);
+        if (!match) return false;
+        const rule = getUserReplies(userId).find(r => String(r.id) === match[1]);
+        if (!rule?.isActive || !matchesReplyTarget(rule, msg) || (rule.scope === 'private' && isGroup) || (rule.scope === 'groups' && !isGroup)) return true;
+        const answer = resolveInteractiveAnswer(rule, Number(match[2]));
+        if (answer) await sock.sendMessage(jid, {text: answer});
+        return true;
+      }
       // تتبع جميع الرسائل الصادرة تلقائياً (بما ��يها ردود البوت)
       if (msg.key.fromMe && msg.key.id) {
         // cacheSentMsg الآن تتضمن O(1) dedup داخلياً
@@ -294093,6 +294115,8 @@ function registerMessageHandler(sock, userId) {
         const user2 = getUser(userId);
         const ms = user2.msgSettings || {};
         const text2 = extractText(msg);
+        const selfInteraction = extractInteractiveResponseId(msg);
+        if (selfInteraction && await handleAutoReplyInteraction(selfInteraction)) return;
         await runAutoReplies(sock, msg, text2, msg.pushName || sock.user?.name || "أنا");
         logger.info({ jid, text: text2 }, "[fromMe] message received"); // [DISPATCH-FIX]
         if (msg.key?.id) cacheSentMsg(cacheKey, msg.key);
@@ -297873,15 +297897,8 @@ ${myS.tiktokCmd} 3 \u062A\u062D\u0634\u064A\u0634 \u0639\u0631\u0627\u0642\u064A
       }
       const interactionId = extractInteractiveResponseId(msg);
       if (interactionId) {
-        if (interactionId.startsWith("arxo:")) {
-          try {
-            const { handleAutoReplyXoInteraction } = await import("../services/auto-reply-xo.mjs");
-            const playerId = msg.key?.participant || msg.key?.participantAlt || jid;
-            await handleAutoReplyXoInteraction(sock, jid, playerId, interactionId, userId);
-          } catch (err) {
-            logger.error({ err }, "XO auto-reply interaction failed");
-          }
-        }
+        try { await handleAutoReplyInteraction(interactionId); }
+        catch (err) { logger.error({err}, 'Auto-reply interaction failed'); }
         return;
       }
       const viewOnceMsg = msg.message?.viewOnceMessage?.message || msg.message?.viewOnceMessageV2?.message || msg.message?.viewOnceMessageV2Extension?.message;

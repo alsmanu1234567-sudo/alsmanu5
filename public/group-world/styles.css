@@ -316,3 +316,14 @@ td small { color: #718899; font-size: 10px; }
   .permission-grid { grid-template-columns: 1fr; }
   .nav-item { padding-inline: 7px; }
 }
+
+/* Updated palette and clearer navigation, shared visually with the main dashboard. */
+:root{--bg:#100f23;--surface:#1d1a38;--surface-2:#272341;--surface-3:#332d50;--line:#423a60;--text:#f8f5ff;--muted:#b6aecf;--accent:#bba5ff;--accent-dark:#251747;--blue:#8fd6ea}
+body{background:radial-gradient(ellipse at 5% 0%,rgba(192,141,255,.17),transparent 30rem),radial-gradient(ellipse at 95% 20%,rgba(65,196,191,.09),transparent 34rem),var(--bg)}
+.topbar{background:rgba(25,20,48,.94);border-color:#453b64}.brand-mark{background:linear-gradient(135deg,#f1b3dc,#a894ff);color:#29153e;box-shadow:0 8px 26px #9c75ef44}
+.button-primary{background:linear-gradient(135deg,#d3b3ff,#a894ff);color:#211438}.button-primary:hover{background:#d5baff}
+.nav-item.active{background:#3a315b;color:#e8d9ff}.icon-button:hover{border-color:#bba5ff;color:#e8d9ff}
+.nav-search{width:100%;margin:4px 0 12px!important;background:#272341!important;border:1px solid #50466f!important;color:#fff!important}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid #efc7ff;outline-offset:2px}
+@media(prefers-reduced-motion:reduce){*,*:before,*:after{scroll-behavior:auto!important;animation-duration:.01ms!important;transition-duration:.01ms!important}}
+.nav-item[hidden]{display:none!important}
