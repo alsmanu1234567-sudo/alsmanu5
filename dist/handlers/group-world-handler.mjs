@@ -1147,6 +1147,11 @@ export async function handleGroupWorldMessage(userId, sock, message, eventType =
   if (!memberId || (!text && !interactionId)) return null;
 
   try {
+    if ([".تفعيل العالم", ".تعطيل العالم"].includes(text.trim())) {
+      return await handleWorldToggle(userId, sock, message, groupId, memberId, text, fromMe);
+    }
+    const world = await groupWorldService.getGroup(groupId);
+    if (!world?.enabled) return null;
     if (interactionId) {
       const eventId = String(message?.key?.id || "");
       const dedupeKey = `${groupId}:${eventId}`;
@@ -1159,9 +1164,6 @@ export async function handleGroupWorldMessage(userId, sock, message, eventType =
         }
       }
       return await handleGroupWorldInteraction(String(userId), sock, groupId, memberId, interactionId);
-    }
-    if ([".تفعيل العالم", ".تعطيل العالم"].includes(text.trim())) {
-      return await handleWorldToggle(userId, sock, message, groupId, memberId, text, fromMe);
     }
     if (text.startsWith(".")) {
       const eventId = String(message?.key?.id || "");
@@ -1177,7 +1179,7 @@ export async function handleGroupWorldMessage(userId, sock, message, eventType =
           while (commandEvents.size > 10_000) commandEvents.delete(commandEvents.keys().next().value);
         }
       }
-      const group = await groupWorldService.getGroup(groupId);
+      const group = world;
       const commandParts = text.trim().split(/\s+/);
       const commandToken = commandParts[0];
       const commandName = commandParts.slice(0, 2).join(" ");

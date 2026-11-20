@@ -42,7 +42,8 @@ test("group web app exposes auto-post routes and valid Arabic UI script", () => 
   assert.match(html, /الكلمات والعبارات الممنوعة/);
   assert.match(html, /_nemgrob/);
   assert.match(html, /رسالة التنبيه عند تعذّر الحذف/);
-  assert.match(html, /ينشر عنوان المقال ونصه/);
+  assert.match(html, /الحد الأقصى لأحرف المقتطف/);
+  assert.match(html, /بدون رابط أو اسم الكاتب/);
   assert.match(html, /تذكيرات المجموعة/);
   assert.match(html, /إضافة وتفعيل التذكير/);
   assert.match(html, /توقيت الخرطوم/);

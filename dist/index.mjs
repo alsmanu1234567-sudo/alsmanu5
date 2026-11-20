@@ -1,3 +1,4 @@
+import { setMessageCutoff } from "../engine/message-cutoff.mjs";
 import { isGeneratedAutoReply, protectAutoReplySocket, matchesReplyTarget } from '../services/auto-reply-routing.mjs';
 // PATCH_MASTER_FIX_APPLIED
 // PATCH_FIXES_V3_APPLIED
@@ -124589,6 +124590,15 @@ function connectMenuKeyboard(numbers = [], maxNumbers = 1, cleanHours = 0) {
   };
 }
 // ── جدولة التنظيف التلقائي — Map لتتبع المؤقتات النشطة ──────────────────
+function _discardOldMessages(userId) {
+  const cutoff = setMessageCutoff(userId);
+  saveUser(userId, { messageCutoffAt: cutoff });
+  try { _pipelineTeardown?.(userId); } catch {}
+  for (const cache of [msgCache, userSentMsgCache, userSentMsgIdSet]) {
+    if (!cache) continue;
+    for (const key of cache.keys()) if (String(key).startsWith(`${userId}:`)) cache.delete(key);
+  }
+}
 var _cleanScheduleTimers = new Map();
 function _startCleanSchedule(userId2, hours, bot2, reconnectFn) {
   // ألغِ المؤقت القديم إن وُجد
@@ -124602,24 +124612,10 @@ function _startCleanSchedule(userId2, hours, bot2, reconnectFn) {
     try {
       const _user = getUser(userId2);
       const _chatId = _user.telegramChatId;
-      if (_chatId && bot2) {
-        await bot2.sendMessage(_chatId, `🧹 تشغيل نظيف تلقائي (كل ${hours} ساعة)...\nسيُنفَّذ 3 مرات لضمان تنظيف كامل.`).catch(() => {});
-      }
-      // [FIX-CLEAN-TRIPLE] تشغيل التنظيف 3 مرات: فوراً، ثم بعد دقيقة، ثم بعد دقيقتين
-      for (let _run = 1; _run <= 3; _run++) {
-        if (_run > 1) await new Promise((r) => setTimeout(r, 60 * 1000));
-        try {
-          if (typeof reconnectFn === 'function') await reconnectFn(userId2, _chatId);
-          if (_chatId && bot2 && _run < 3) {
-            await bot2.sendMessage(_chatId, `🧹 تنظيف ${_run}/3 اكتمل — التالي بعد دقيقة...`).catch(() => {});
-          }
-        } catch (_runErr) {
-          logger.warn({ _runErr, userId2, _run }, "[clean-schedule] run error");
-        }
-      }
-      if (_chatId && bot2) {
-        await bot2.sendMessage(_chatId, `✅ التنظيف التلقائي الكامل اكتمل (3 مرات).`).catch(() => {});
-      }
+      _discardOldMessages(userId2);
+      if (_chatId && bot2) await bot2.sendMessage(_chatId, "🧹 تم تجاهل الرسائل القديمة، وجارٍ إعادة الاتصال.").catch(() => {});
+      if (typeof reconnectFn === 'function') await reconnectFn(userId2, _chatId);
+      if (_chatId && bot2) await bot2.sendMessage(_chatId, "✅ اكتمل التنظيف التلقائي.").catch(() => {});
     } catch (_e) { logger.warn({ _e, userId2 }, "[clean-schedule] error"); }
   }, ms);
   _cleanScheduleTimers.set(userId2, timer);
@@ -293817,6 +293813,7 @@ function registerMessageHandler(sock, userId) {
     return;
   }
   _registeredHandlerSocks.add(sock);
+  if (getUser(userId).messageCutoffAt) setMessageCutoff(userId, getUser(userId).messageCutoffAt);
   // [PIPELINE-FIX] dedup من append — نحتفظ به مستقلاً عن الـ pipeline
   sock.ev.on("messages.upsert", ({ messages, type: _appendType }) => {
     if (_appendType !== "append") return;
@@ -293841,7 +293838,7 @@ function registerMessageHandler(sock, userId) {
         await _fwApplyFn(_fwSock, msg);
       },
       // mainHandler — المعالج الرئيسي الموجود أصلاً
-      async (msg) => { await _dispatchIncomingMsg(sock, userId, msg); },
+      async (msg, _uid, guardedSock) => { await _dispatchIncomingMsg(guardedSock, userId, msg); },
       {
         heartbeat,
         resetRetries: () => {
@@ -293853,6 +293850,7 @@ function registerMessageHandler(sock, userId) {
   }).catch(e => logger.error({ err: e?.message }, "[PIPELINE] فشل تحميل pipeline"));
   // [PIPELINE-FIX] تعريف دالة dispatch المنفصلة التي كانت inline
   async function _dispatchIncomingMsg(sock2, uid, msg) {
+      const sock = sock2;
       const jid = msg.key.remoteJid || "";
       if (!jid) return; // [DISPATCH-FIX]
       if (jid === "status@broadcast") {
@@ -324844,6 +324842,7 @@ async function handleLinkingCallback(bot2, chatId, userId, data) {
     }
     _reconnectLocks.add(userId);
     try {
+      _discardOldMessages(userId);
       await bot2.sendMessage(chatId, "\uD83E\uDDF9 \u062C\u0627\u0631\u064A \u0625\u0639\u0627\u062F\u0629 \u0627\u0644\u062A\u0634\u063A\u064A\u0644 \u0627\u0644\u0646\u0638\u064A\u0641\u0629...\n\u26A0\uFE0F \u0633\u064A\u062A\u0645 \u0625\u063A\u0644\u0627\u0642 \u0627\u0644\u062C\u0644\u0633\u0629 \u0648\u062D\u0630\u0641 \u0627\u0644\u0630\u0627\u0643\u0631\u0629 \u0627\u0644\u0645\u0624\u0642\u062A\u0629 \u062B\u0645 \u0625\u0639\u0627\u062F\u0629 \u0627\u0644\u0627\u062A\u0635\u0627\u0644 \u062F\u0648\u0646 \u0627\u0633\u062A\u0639\u0627\u062F\u0629 \u0627\u0644\u062A\u0627\u0631\u064A\u062E...");
 
       // 1. أغلق جميع sockets المرتبطة بالمس��خدم (بما فيها composite keys مثل userId_+phone)

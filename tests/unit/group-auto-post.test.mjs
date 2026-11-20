@@ -67,9 +67,11 @@ test("group auto-post validates, previews, publishes without repeats, and schedu
     const item = await saveWebGroupAutoPost(userId, groupId, "+249960506662", {
       topic: "قصص حب",
       times: getKhartoumClock().time,
+      excerptLength: 80,
     });
     assert.equal(item.enabled, false);
     assert.equal(item.topic, "قصص حب");
+    assert.equal(item.excerptLength, 80);
 
     const enabled = await setWebGroupAutoPostEnabled(
       userId, groupId, "+249960506662", item.id, true
@@ -81,7 +83,8 @@ test("group auto-post validates, previews, publishes without repeats, and schedu
     );
     assert.match(preview.title, /قصة حب/);
     assert.match(preview.url, /^https:\/\/mawdoo3\.com\//);
-    assert.equal(preview.content, articleContent);
+    assert.ok(preview.content.length <= 80);
+    assert.ok(articleContent.startsWith(preview.content.replace(/…$/, "")));
     assert.deepEqual(Object.keys(preview).sort(), ["content", "title", "url"]);
     assert.equal(sent.length, 0, "preview must not send to the group");
 
@@ -91,12 +94,8 @@ test("group auto-post validates, previews, publishes without repeats, and schedu
     assert.equal(manual.ok, true);
     assert.equal(sent.length, 1);
     assert.equal(sent[0].jid, groupId);
-    assert.equal(
-      sent[0].payload.text,
-      `📖 ${manual.title}\n\n${articleContent}\n\nالمصدر: موضوع\n${manual.url}`
-    );
-    assert.match(sent[0].payload.text, /المصدر: موضوع/);
-    assert.doesNotMatch(sent[0].payload.text, /مقتطف|ملخص/);
+    assert.equal(sent[0].payload.text, `📖 ${manual.title}\n\n${preview.content}`);
+    assert.doesNotMatch(sent[0].payload.text, /المصدر:|https?:|الكاتب/);
 
     await runScheduledGroupAutoPosts();
     await runScheduledGroupAutoPosts();
@@ -132,4 +131,12 @@ test("group auto-post validates, previews, publishes without repeats, and schedu
     clearMawdoo3Cache();
     stopModerationListenerRecovery();
   }
+});
+
+test('excerpt removes author and links and respects the requested size', async () => {
+  const { articleExcerpt } = await import('../../dist/handlers/groups-handler.mjs');
+  const text = 'تمت الكتابة بواسطة: شخص\nهذا نص مفيد يحتوي تفاصيل كثيرة عن الموضوع حتى يكفي للاقتطاع بشكل صحيح وآمن ومناسب. https://example.com/a\nالمصدر: رابط';
+  const result = articleExcerpt(text, 50);
+  assert.ok(result.length <= 50);
+  assert.doesNotMatch(result, /الكتابة بواسطة|شخص|https?:|المصدر/);
 });

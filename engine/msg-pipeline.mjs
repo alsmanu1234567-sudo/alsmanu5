@@ -1,3 +1,4 @@
+import { getMessageCutoff, isMessageAfterCutoff, guardMessageSocket } from "./message-cutoff.mjs";
 /**
  * engine/msg-pipeline.mjs — v2
  * ─────────────────────────────────────────────────────────────────
@@ -169,7 +170,7 @@ export function teardown(userId) {
 
 function _routeMessage(sock, userId, msg, type, isNewsletter, applyForward, mainHandler) {
   const jid = msg.key?.remoteJid || "";
-  if (!jid) return;
+  if (!jid || !isMessageAfterCutoff(userId, msg)) return;
 
   const us = _uStat(userId);
 
@@ -217,9 +218,13 @@ function _routeMessage(sock, userId, msg, type, isNewsletter, applyForward, main
 // ── معالجة رسالة واحدة ───────────────────────────────────────────
 
 async function _processMsg(sock, userId, msg, applyForward, mainHandler) {
-  try { await applyForward(sock, msg); }
+  if (!isMessageAfterCutoff(userId, msg)) return;
+  const generation = getMessageCutoff(userId);
+  const guardedSock = guardMessageSocket(sock, userId, msg, generation);
+  try { await applyForward(guardedSock, msg); }
   catch { /* خطأ forward لا يُعطّل الأوامر */ }
-  try { await mainHandler(msg, userId, sock); }
+  if (generation !== getMessageCutoff(userId) || !isMessageAfterCutoff(userId, msg)) return;
+  try { await mainHandler(msg, userId, guardedSock); }
   catch { /* حماية الـ lane */ }
 }
 

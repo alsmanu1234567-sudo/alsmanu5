@@ -206,6 +206,7 @@ export function registerWebApp(app) {
         id: req.body?.autoPostId,
         topic: req.body?.topic,
         times: req.body?.times,
+        excerptLength: req.body?.excerptLength,
       },
     );
   }));
@@ -773,7 +774,7 @@ function renderGroupDetails(){
     '<div class="meta" style="white-space:normal">المتغيرات: <code>_nem</code> اسم العضو، <code>_time</code> الوقت بتوقيت الخرطوم، <code>_nemgrob</code> اسم المجموعة. اكتب المتغير كما هو مع الشرطة السفلية.</div>' +
     '<button class="btn btn-p btn-sm" data-group-messages-save>حفظ رسائل الترحيب والوداع</button></div>' +
     '<div class="group-detail-block"><div class="group-detail-title">🗓️ النشر التلقائي</div>' +
-    '<div class="meta" style="white-space:normal">ينشر عنوان المقال ونصه المستخرج من موضوع مع رابط المصدر. الأوقات بتوقيت الخرطوم وسجل منع التكرار محفوظ للمجموعة.</div>' +
+    '<div class="meta" style="white-space:normal">ينشر عنوان المقال ونصه كمقتطف من موضوع حسب الطول المحدد، بدون رابط أو اسم الكاتب. الأوقات بتوقيت الخرطوم وسجل منع التكرار محفوظ للمجموعة.</div>' +
     autoPostRows +
     '<div class="auto-post-form"><div class="fld"><label for="autoPostTopic">نوع المحتوى أو موضوع البحث</label>' +
     '<input type="text" id="autoPostTopic" list="autoPostTopics" maxlength="60" '+
@@ -783,6 +784,9 @@ function renderGroupDetails(){
     '<input type="text" id="autoPostTimes" maxlength="63" placeholder="08:30, 20:15" '+
     'value="'+esc((editingAutoPost?.times||[]).join(", "))+'" '+(canManage?"":"disabled")+'>' +
     '<div class="meta">أدخل حتى 8 أوقات بصيغة 24 ساعة، مفصولة بفواصل. الإعداد الجديد يبدأ متوقفاً.</div></div>' +
+    '<div class="fld"><label for="autoPostLength">الحد الأقصى لأحرف المقتطف</label>' +
+    '<input type="number" id="autoPostLength" min="50" max="12000" step="1" value="'+esc(editingAutoPost?.excerptLength||500)+'" '+(canManage?"":"disabled")+'>' +
+    '<div class="meta">من 50 إلى 12000 حرف، الافتراضي 500 حرف.</div></div>' +
     '<button class="btn btn-p btn-sm" data-auto-save '+(canManage?"":"disabled")+'>' +
     (editingAutoPost?"حفظ التعديل":"إضافة جدول نشر")+'</button> '+
     (editingAutoPost?'<button class="btn btn-s btn-sm" data-auto-cancel-edit>إلغاء التعديل</button>':"")+
@@ -887,6 +891,8 @@ async function saveGroupAutoPost(){
   if (!GROUP_DETAIL) return;
   const topic = String(document.getElementById("autoPostTopic")?.value||"").trim();
   const times = String(document.getElementById("autoPostTimes")?.value||"").trim();
+  const excerptLength = Number(document.getElementById("autoPostLength")?.value);
+  if (!Number.isInteger(excerptLength) || excerptLength < 50 || excerptLength > 12000) return toast("⚠️ حدد طول المقتطف بين 50 و12000 حرف");
   if (!topic || !times) return toast("⚠️ أدخل نوع المحتوى ومواعيد النشر");
   const button = document.querySelector("[data-auto-save]");
   const editing = !!AUTO_POST_EDIT_ID;
@@ -897,7 +903,8 @@ async function saveGroupAutoPost(){
       phoneNumber: GROUP_DETAIL.phoneNumber || "",
       autoPostId: AUTO_POST_EDIT_ID,
       topic,
-      times
+      times,
+      excerptLength
     });
     AUTO_POST_EDIT_ID = null;
     toast(editing?"✅ تم تحديث الجدول":"✅ تمت إضافة الجدول وهو متوقف");
@@ -914,7 +921,7 @@ async function toggleGroupAutoPost(autoPostId){
   if (!item) return toast("❌ إعداد النشر غير موجود");
   const enabled = !item.enabled;
   if (!confirm(enabled
-    ? "سينشر البوت عنوان المقال ونصه ورابط المصدر من موضوع في الأوقات المحددة. هل تريد التفعيل؟"
+    ? "سينشر البوت عنوان المقال ومقتطفه بدون رابط أو اسم الكاتب من موضوع في الأوقات المحددة. هل تريد التفعيل؟"
     : "إيقاف النشر التلقائي لهذا الجدول؟")) return;
   try {
     await api("/api/fw/groups/autopost/toggle", {
@@ -942,7 +949,7 @@ async function testGroupAutoPost(autoPostId, button){
       phoneNumber: GROUP_DETAIL.phoneNumber || "",
       autoPostId
     });
-    if (preview) preview.innerHTML = '<div><strong>'+esc(item.title)+'</strong></div><div style="white-space:pre-wrap;margin:7px 0">'+esc(String(item.content||"").slice(0,1200))+(String(item.content||"").length>1200?"…":"")+'</div><a href="'+esc(item.url)+'" target="_blank" rel="noopener noreferrer">فتح المصدر في موضوع</a>';
+    if (preview) preview.innerHTML = '<div><strong>'+esc(item.title)+'</strong></div><div style="white-space:pre-wrap;margin:7px 0">'+esc(String(item.content||""))+'</div><a href="'+esc(item.url)+'" target="_blank" rel="noopener noreferrer">فتح المصدر في موضوع</a>';
     toast("✅ نجح اختبار الجلب؛ لم تُرسل رسالة للمجموعة");
   } catch(e) {
     if (preview) preview.innerHTML = '<div class="auto-post-error">'+esc(e.message)+'</div>';
@@ -955,7 +962,7 @@ async function testGroupAutoPost(autoPostId, button){
 
 async function publishGroupAutoPost(autoPostId, button){
   if (!GROUP_DETAIL) return;
-  if (!confirm("سيتم نشر عنوان المقال ونصه ورابط المصدر في المجموعة الآن. هل تريد المتابعة؟")) return;
+  if (!confirm("سيتم نشر عنوان المقال ومقتطفه بدون رابط أو اسم الكاتب في المجموعة الآن. هل تريد المتابعة؟")) return;
   const original = button.textContent;
   button.disabled = true;
   button.textContent = "جارٍ النشر…";
@@ -965,7 +972,7 @@ async function publishGroupAutoPost(autoPostId, button){
       phoneNumber: GROUP_DETAIL.phoneNumber || "",
       autoPostId
     });
-    toast("✅ تم نشر المقال ونصه ورابطه");
+    toast("✅ تم نشر عنوان المقال ومقتطفه");
     await openGroupDetails(GROUP_DETAIL.id);
   } catch(e) {
     toast("❌ "+e.message);

@@ -246,3 +246,11 @@ test("XO uses direct quick-reply buttons and enforces turns", async (t) => {
   await handleGroupWorldMessage("web-owner", sock, click("xo-out-of-turn", OWNER_LID, buttonIds[1]), "notify");
   assert.match(sent.map((entry) => entry.text || "").join("\n"), /ليس دورك/);
 });
+
+test("disabled group world silently ignores dot commands and normal messages", async (t) => {
+  const { service, sock, sent } = await setup(t);
+  await service.setEnabled(GROUP, false, 'web-owner', 'test');
+  await handleGroupWorldMessage('web-owner', sock, message('disabled-dot', '.hello', {fromMe:false, participant:MEMBER, participantAlt:MEMBER}), 'notify');
+  await handleGroupWorldMessage('web-owner', sock, message('disabled-normal', 'ordinary.message', {fromMe:false, participant:MEMBER, participantAlt:MEMBER}), 'notify');
+  assert.equal(sent.length, 0);
+});

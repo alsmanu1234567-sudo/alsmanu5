@@ -157,7 +157,7 @@ function articleTextBlocks(html) {
     const text = articleTextFromMarkup(markup);
     if (
       text.length < (tag === "li" ? 12 : 20) ||
-      /^(?:اقرأ(?:\s|ً)|مواضيع ذات صلة|مقالات ذات صلة|قد يعجبك|المصدر|المراجع|تمت الكتابة بواسطة|آخر تحديث|آخر تعديل|تاريخ النشر|محتويات)\b/iu.test(text) ||
+      /^(?:اقرأ(?:\s|ً)|مواضيع ذات صلة|مقالات ذات صلة|قد يعجبك|المصدر|المراجع|تمت الكتابة بواسطة|آخر تحديث|آخر تعديل|تاريخ النشر|محتويات)/iu.test(text) ||
       (tag === "li" && text.length < 180 && /<a\b[^>]*\bhref\s*=\s*["']#/iu.test(markup))
     ) continue;
     if (blocks.at(-1) !== text) blocks.push(text);

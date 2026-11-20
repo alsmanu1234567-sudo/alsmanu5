@@ -1,3 +1,4 @@
+import { getMessageCutoff, isMessageAfterCutoff, guardMessageSocket } from "../../engine/message-cutoff.mjs";
 // dist/handlers/groups-handler.mjs
 // Domain: Groups — /groups + callbacks
 import { randomUUID } from "node:crypto";
@@ -272,6 +273,7 @@ function publicAutoPost(item) {
   return {
     id: String(item.id || ""),
     topic: String(item.topic || ""),
+    excerptLength: Number.isInteger(item.excerptLength) ? item.excerptLength : 500,
     times: Array.isArray(item.times) ? item.times.filter((time) => /^\d{2}:\d{2}$/.test(time)) : [],
     enabled: item.enabled === true,
     lastSentAt: item.lastSentAt || null,
@@ -366,12 +368,24 @@ function saveAutoPostResult(userId, groupId, autoPostId, patch) {
   saveAutoPostList(userId, updated);
 }
 
-function postTextForArticle(article) {
+export function articleExcerpt(content, length = 500) {
+  const cleaned = String(content || "")
+    .split(/\n+/u)
+    .filter(line => !/^\s*(?:تمت الكتابة بواسطة|كتابة|بقلم|الكاتب|المؤلف|المراجع|المصدر|آخر تحديث|آخر تعديل|تاريخ النشر)\s*[:：]?/u.test(line))
+    .join("\n\n")
+    .replace(/https?:\/\/\S+|www\.\S+/giu, "")
+    .trim();
+  const limit = Number.isInteger(length) && length >= 50 && length <= 12000 ? length : 500;
+  if (cleaned.length <= limit) return cleaned;
+  let excerpt = cleaned.slice(0, limit - 1).trimEnd();
+  const boundary = excerpt.lastIndexOf(" ");
+  if (boundary > limit * 0.7) excerpt = excerpt.slice(0, boundary).trimEnd();
+  return `${excerpt}…`;
+}
+function postTextForArticle(article, length) {
   const content = String(article?.content || "").trim();
-  if (content.length < 40) {
-    throw new Error("لم يتوفر نص المقال؛ لم تُرسل رسالة تحتوي الرابط فقط");
-  }
-  return `📖 ${article.title}\n\n${content}\n\nالمصدر: موضوع\n${article.url}`;
+  if (content.length < 40) throw new Error("لم يتوفر نص المقال؛ لم تُرسل رسالة تحتوي الرابط فقط");
+  return `📖 ${article.title}\n\n${articleExcerpt(content, length)}`;
 }
 
 export function getKhartoumClock(date = new Date()) {
@@ -634,7 +648,7 @@ async function publishScheduledItem(userId, item, day, time) {
     });
     article.content = await fetchMawdoo3ArticleContent(article.url);
     reserveAutoPostUrl(userId, groupId, article.url);
-    await access.sock.sendMessage(groupId, { text: postTextForArticle(article) });
+    await access.sock.sendMessage(groupId, { text: postTextForArticle(article, current.excerptLength) });
     saveAutoPostResult(userId, groupId, item.id, {
       lastSentAt: new Date().toISOString(),
       lastError: null,
@@ -680,6 +694,8 @@ export async function saveWebGroupAutoPost(userId, groupId, phoneNumber, input =
   const topic = String(input.topic || "").trim().replace(/\s+/g, " ");
   if (topic.length < 2 || topic.length > 60) throw new Error("اكتب موضوعاً من حرفين إلى 60 حرفاً");
   const times = parseAutoPostTimes(input.times);
+  const excerptLength = input.excerptLength == null || input.excerptLength === "" ? 500 : Number(input.excerptLength);
+  if (!Number.isInteger(excerptLength) || excerptLength < 50 || excerptLength > 12000) throw new Error("حدد طول المقتطف بين 50 و12000 حرف");
   const items = autoPostItems(user);
   let existing = null;
   if (input.id) {
@@ -701,6 +717,7 @@ export async function saveWebGroupAutoPost(userId, groupId, phoneNumber, input =
     phoneNumber: access.phoneNumber,
     topic,
     times,
+    excerptLength,
     enabled: existing?.enabled === true,
     createdAt: existing?.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -747,7 +764,7 @@ export async function previewWebGroupAutoPost(userId, groupId, phoneNumber, auto
     seenUrls: seenAutoPostUrls(user, access.groupId),
   });
   const content = await fetchMawdoo3ArticleContent(article.url);
-  return { ...article, content };
+  return { ...article, content: articleExcerpt(content, item.excerptLength) };
 }
 
 export async function publishWebGroupAutoPostNow(userId, groupId, phoneNumber, autoPostId) {
@@ -764,7 +781,7 @@ export async function publishWebGroupAutoPostNow(userId, groupId, phoneNumber, a
     });
     article.content = await fetchMawdoo3ArticleContent(article.url);
     reserveAutoPostUrl(access.userId, access.groupId, article.url);
-    await access.sock.sendMessage(access.groupId, { text: postTextForArticle(article) });
+    await access.sock.sendMessage(access.groupId, { text: postTextForArticle(article, item.excerptLength) });
     saveAutoPostResult(access.userId, access.groupId, item.id, {
       lastSentAt: new Date().toISOString(),
       lastError: null,
@@ -862,7 +879,9 @@ function ensureGroupWorldListeners(userId, sock) {
   if (!_groupWorldMessageListeners.has(sock)) {
     sock.ev.on("messages.upsert", (event) => {
       for (const message of event?.messages || []) {
-        void handleGroupWorldMessage(String(userId), sock, message, event?.type || "").catch((error) => {
+        if (!isMessageAfterCutoff(userId, message)) continue;
+        const guarded = guardMessageSocket(sock, userId, message, getMessageCutoff(userId));
+        void handleGroupWorldMessage(String(userId), guarded, message, event?.type || "").catch((error) => {
           _deps?.logger?.warn?.(
             { err: String(error?.message || error) },
             "Group World message handling failed",
@@ -1283,7 +1302,9 @@ function ensureModerationListener(userId, sock = findSocket(userId)) {
   if (!sock?.ev?.on || _listeners.has(sock)) return;
   const listener = (event) => {
     for (const message of event?.messages || []) {
-      void handleModeratedMessage(String(userId), sock, message).catch(() => {});
+      if (!isMessageAfterCutoff(userId, message)) continue;
+      const guarded = guardMessageSocket(sock, userId, message, getMessageCutoff(userId));
+      void handleModeratedMessage(String(userId), guarded, message).catch(() => {});
     }
   };
   sock.ev.on("messages.upsert", listener);
