@@ -93,14 +93,14 @@ function dependencyProblems() {
 async function ensureDependenciesOnce() {
   const fingerprint = dependencyFingerprint();
   const previous = existsSync(DEPS_STAMP) ? readFileSync(DEPS_STAMP, "utf8").trim() : "";
-  const problems = dependencyProblems();
+  const problems = [...dependencyProblems(), ...missingDeclaredPackages(BASE_DIR, EXTERNAL_DEPS_DIR)];
   if (problems.length === 0 && previous === fingerprint) {
     ok("التبعيات الخارجية ثابتة — لا حاجة لإعادة التثبيت");
     return;
   }
   if (problems.length > 0) wrn(`تبعيات تحتاج تحديثاً: ${problems.join("، ")}`);
   await ensurePackages(BASE_DIR, EXTERNAL_DEPS_DIR);
-  const remaining = dependencyProblems();
+  const remaining = [...dependencyProblems(), ...missingDeclaredPackages(BASE_DIR, EXTERNAL_DEPS_DIR)];
   if (remaining.length > 0) {
     throw new Error(`تعذر تجهيز التبعيات: ${remaining.join("، ")}`);
   }
