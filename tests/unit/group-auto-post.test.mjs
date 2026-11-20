@@ -140,3 +140,30 @@ test('excerpt removes author and links and respects the requested size', async (
   assert.ok(result.length <= 50);
   assert.doesNotMatch(result, /الكتابة بواسطة|شخص|https?:|المصدر/);
 });
+
+test('AI auto-post uses stored key, selected model, prompt and never repeats article', async () => {
+  const originalFetch = globalThis.fetch;
+  const groupId = '120363123456789012@g.us', userId = 'ai-user';
+  const user = {nvidiaKey:'test-key',nvidiaModel:'test/selected',groupAutoPosts:[]};
+  const sent=[], requests=[];
+  const longText='هذا مقال عربي يتضمن معلومات مفيدة للمجموعة ويحتوي على تفاصيل كثيرة ومهمة في الموضوع.';
+  globalThis.fetch=async (url,opts={})=>{
+    if (String(url).includes('/chat/completions')) {
+      requests.push(JSON.parse(opts.body));
+      return new Response(JSON.stringify({choices:[{message:{content:'هذا مقتطف المقال المفيد.'}}]}),{status:200});
+    }
+    return new Response(String(url).includes('/خاص:') ? '<a href="/قصة_حب_واحدة">قصة حب واحدة</a>' : `<article><p>${longText}</p></article>`,{status:200});
+  };
+  clearMawdoo3Cache();
+  const sock={user:{id:'249960506662@s.whatsapp.net'},groupMetadata:async()=>({participants:[{id:'249960506662@s.whatsapp.net',admin:'admin'}]}),sendMessage:async(id,payload)=>sent.push({id,payload})};
+  setDeps({inMemoryDB:{sessions:new Map([[userId,sock]]),users:new Map([[userId,user]])},getUser:()=>user,saveUser:(_id,patch)=>Object.assign(user,patch)});
+  try {
+    const item=await saveWebGroupAutoPost(userId,groupId,'+249960506662',{topic:'قصص حب',times:'10:00',excerptMode:'ai',aiPrompt:'رتبه في نقاط'});
+    assert.equal(item.excerptMode,'ai'); assert.equal(item.aiPrompt,'رتبه في نقاط');
+    const preview=await previewWebGroupAutoPost(userId,groupId,'+249960506662',item.id);
+    assert.equal(preview.content,'هذا مقتطف المقال المفيد.'); assert.equal(requests[0].model,'test/selected'); assert.match(requests[0].messages[1].content,/رتبه في نقاط/);
+    await publishWebGroupAutoPostNow(userId,groupId,'+249960506662',item.id);
+    assert.match(sent[0].payload.text,/هذا مقتطف المقال المفيد/); assert.doesNotMatch(sent[0].payload.text,/https?:|المصدر|الكاتب/);
+    await assert.rejects(publishWebGroupAutoPostNow(userId,groupId,'+249960506662',item.id),/غير مكرر/);
+  } finally {globalThis.fetch=originalFetch;clearMawdoo3Cache();stopModerationListenerRecovery();}
+});

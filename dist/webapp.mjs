@@ -207,6 +207,8 @@ export function registerWebApp(app) {
         topic: req.body?.topic,
         times: req.body?.times,
         excerptLength: req.body?.excerptLength,
+        excerptMode: req.body?.excerptMode,
+        aiPrompt: req.body?.aiPrompt,
       },
     );
   }));
@@ -774,7 +776,7 @@ function renderGroupDetails(){
     '<div class="meta" style="white-space:normal">المتغيرات: <code>_nem</code> اسم العضو، <code>_time</code> الوقت بتوقيت الخرطوم، <code>_nemgrob</code> اسم المجموعة. اكتب المتغير كما هو مع الشرطة السفلية.</div>' +
     '<button class="btn btn-p btn-sm" data-group-messages-save>حفظ رسائل الترحيب والوداع</button></div>' +
     '<div class="group-detail-block"><div class="group-detail-title">🗓️ النشر التلقائي</div>' +
-    '<div class="meta" style="white-space:normal">ينشر عنوان المقال ونصه كمقتطف من موضوع حسب الطول المحدد، بدون رابط أو اسم الكاتب. الأوقات بتوقيت الخرطوم وسجل منع التكرار محفوظ للمجموعة.</div>' +
+    '<div class="meta" style="white-space:normal">ينشر عنوان المقال ومقتطفه من موضوع بالطول المحدد أو باستخدام الذكاء الاصطناعي، بدون رابط أو اسم الكاتب. الأوقات بتوقيت الخرطوم وسجل منع التكرار محفوظ للمجموعة.</div>' +
     autoPostRows +
     '<div class="auto-post-form"><div class="fld"><label for="autoPostTopic">نوع المحتوى أو موضوع البحث</label>' +
     '<input type="text" id="autoPostTopic" list="autoPostTopics" maxlength="60" '+
@@ -784,7 +786,14 @@ function renderGroupDetails(){
     '<input type="text" id="autoPostTimes" maxlength="63" placeholder="08:30, 20:15" '+
     'value="'+esc((editingAutoPost?.times||[]).join(", "))+'" '+(canManage?"":"disabled")+'>' +
     '<div class="meta">أدخل حتى 8 أوقات بصيغة 24 ساعة، مفصولة بفواصل. الإعداد الجديد يبدأ متوقفاً.</div></div>' +
-    '<div class="fld"><label for="autoPostLength">الحد الأقصى لأحرف المقتطف</label>' +
+    '<div class="fld"><label for="autoPostMode">طريقة اختيار المقتطف</label>' +
+    '<select id="autoPostMode" '+(canManage?"":"disabled")+'>' +
+    '<option value="length" '+(editingAutoPost?.excerptMode!=="ai"?"selected":"")+'>عدد أحرف محدد</option>' +
+    '<option value="ai" '+(editingAutoPost?.excerptMode==="ai"?"selected":"")+'>الذكاء الاصطناعي (النموذج المختار في قسم الذكاء)</option></select></div>' +
+    '<div class="fld" id="autoPostAiFields" style="display:'+(editingAutoPost?.excerptMode==="ai"?"block":"none")+'"><label for="autoPostAiPrompt">تعليمات الذكاء للنشر (اختياري)</label>' +
+    '<textarea id="autoPostAiPrompt" maxlength="2000" placeholder="مثال: اختر أهم المعلومات ورتبها في نقاط" '+(canManage?"":"disabled")+'>'+esc(editingAutoPost?.aiPrompt||"")+'</textarea>' +
+    '<div class="meta">يُستخدم فقط عند اختيار الذكاء الاصطناعي؛ قد يستهلك من رصيد NVIDIA.</div></div>' +
+    '<div class="fld" id="autoPostLengthFields" style="display:'+(editingAutoPost?.excerptMode==="ai"?"none":"block")+'"><label for="autoPostLength">الحد الأقصى لأحرف المقتطف</label>' +
     '<input type="number" id="autoPostLength" min="50" max="12000" step="1" value="'+esc(editingAutoPost?.excerptLength||500)+'" '+(canManage?"":"disabled")+'>' +
     '<div class="meta">من 50 إلى 12000 حرف، الافتراضي 500 حرف.</div></div>' +
     '<button class="btn btn-p btn-sm" data-auto-save '+(canManage?"":"disabled")+'>' +
@@ -869,6 +878,11 @@ function renderGroupDetails(){
   sh.querySelectorAll("[data-auto-test]").forEach(button=>
     button.addEventListener("click", ()=>testGroupAutoPost(button.dataset.autoTest, button))
   );
+  sh.querySelector("#autoPostMode")?.addEventListener("change", (event) => {
+    const ai = event.target.value === "ai";
+    sh.querySelector("#autoPostAiFields").style.display = ai ? "block" : "none";
+    sh.querySelector("#autoPostLengthFields").style.display = ai ? "none" : "block";
+  });
   sh.querySelectorAll("[data-auto-publish]").forEach(button=>
     button.addEventListener("click", ()=>publishGroupAutoPost(button.dataset.autoPublish, button))
   );
@@ -891,6 +905,8 @@ async function saveGroupAutoPost(){
   if (!GROUP_DETAIL) return;
   const topic = String(document.getElementById("autoPostTopic")?.value||"").trim();
   const times = String(document.getElementById("autoPostTimes")?.value||"").trim();
+  const excerptMode = String(document.getElementById("autoPostMode")?.value || "length");
+  const aiPrompt = String(document.getElementById("autoPostAiPrompt")?.value || "").trim();
   const excerptLength = Number(document.getElementById("autoPostLength")?.value);
   if (!Number.isInteger(excerptLength) || excerptLength < 50 || excerptLength > 12000) return toast("⚠️ حدد طول المقتطف بين 50 و12000 حرف");
   if (!topic || !times) return toast("⚠️ أدخل نوع المحتوى ومواعيد النشر");
@@ -904,7 +920,9 @@ async function saveGroupAutoPost(){
       autoPostId: AUTO_POST_EDIT_ID,
       topic,
       times,
-      excerptLength
+      excerptLength,
+      excerptMode,
+      aiPrompt
     });
     AUTO_POST_EDIT_ID = null;
     toast(editing?"✅ تم تحديث الجدول":"✅ تمت إضافة الجدول وهو متوقف");

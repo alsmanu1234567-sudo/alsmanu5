@@ -1,3 +1,4 @@
+import { prepareArticleWithAi } from "../../services/ai/article-ai.mjs";
 import { getMessageCutoff, isMessageAfterCutoff, guardMessageSocket } from "../../engine/message-cutoff.mjs";
 // dist/handlers/groups-handler.mjs
 // Domain: Groups — /groups + callbacks
@@ -274,6 +275,8 @@ function publicAutoPost(item) {
     id: String(item.id || ""),
     topic: String(item.topic || ""),
     excerptLength: Number.isInteger(item.excerptLength) ? item.excerptLength : 500,
+    excerptMode: item.excerptMode === "ai" ? "ai" : "length",
+    aiPrompt: String(item.aiPrompt || ""),
     times: Array.isArray(item.times) ? item.times.filter((time) => /^\d{2}:\d{2}$/.test(time)) : [],
     enabled: item.enabled === true,
     lastSentAt: item.lastSentAt || null,
@@ -386,6 +389,16 @@ function postTextForArticle(article, length) {
   const content = String(article?.content || "").trim();
   if (content.length < 40) throw new Error("لم يتوفر نص المقال؛ لم تُرسل رسالة تحتوي الرابط فقط");
   return `📖 ${article.title}\n\n${articleExcerpt(content, length)}`;
+}
+
+async function preparePostArticle(userId, article, item) {
+  if (item.excerptMode !== 'ai') return articleExcerpt(article.content, item.excerptLength);
+  const user = _deps?.getUser?.(String(userId)) || {};
+  return prepareArticleWithAi({
+    key: user.nvidiaKey || process.env.NVIDIA_API_KEY || null,
+    model: user.nvidiaModel || 'meta/llama-3.1-8b-instruct',
+    title: article.title, content: article.content, prompt: item.aiPrompt || '',
+  });
 }
 
 export function getKhartoumClock(date = new Date()) {
@@ -647,8 +660,9 @@ async function publishScheduledItem(userId, item, day, time) {
       seenUrls: seenAutoPostUrls(latestUser, groupId),
     });
     article.content = await fetchMawdoo3ArticleContent(article.url);
+    const prepared = await preparePostArticle(userId, article, current);
     reserveAutoPostUrl(userId, groupId, article.url);
-    await access.sock.sendMessage(groupId, { text: postTextForArticle(article, current.excerptLength) });
+    await access.sock.sendMessage(groupId, { text: `📖 ${article.title}\n\n${prepared}` });
     saveAutoPostResult(userId, groupId, item.id, {
       lastSentAt: new Date().toISOString(),
       lastError: null,
@@ -694,6 +708,11 @@ export async function saveWebGroupAutoPost(userId, groupId, phoneNumber, input =
   const topic = String(input.topic || "").trim().replace(/\s+/g, " ");
   if (topic.length < 2 || topic.length > 60) throw new Error("اكتب موضوعاً من حرفين إلى 60 حرفاً");
   const times = parseAutoPostTimes(input.times);
+  const excerptMode = input.excerptMode == null ? "length" : String(input.excerptMode);
+  if (!["length", "ai"].includes(excerptMode)) throw new Error("طريقة إعداد المقتطف غير صالحة");
+  const aiPrompt = String(input.aiPrompt || "").trim();
+  if (aiPrompt.length > 2000) throw new Error("البرومبت يتجاوز 2000 حرف");
+  if (excerptMode === "ai" && !(user.nvidiaKey || process.env.NVIDIA_API_KEY)) throw new Error("أضف مفتاح NVIDIA في قسم الذكاء الاصطناعي أولاً");
   const excerptLength = input.excerptLength == null || input.excerptLength === "" ? 500 : Number(input.excerptLength);
   if (!Number.isInteger(excerptLength) || excerptLength < 50 || excerptLength > 12000) throw new Error("حدد طول المقتطف بين 50 و12000 حرف");
   const items = autoPostItems(user);
@@ -718,6 +737,8 @@ export async function saveWebGroupAutoPost(userId, groupId, phoneNumber, input =
     topic,
     times,
     excerptLength,
+    excerptMode,
+    aiPrompt,
     enabled: existing?.enabled === true,
     createdAt: existing?.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -764,7 +785,7 @@ export async function previewWebGroupAutoPost(userId, groupId, phoneNumber, auto
     seenUrls: seenAutoPostUrls(user, access.groupId),
   });
   const content = await fetchMawdoo3ArticleContent(article.url);
-  return { ...article, content: articleExcerpt(content, item.excerptLength) };
+  return { ...article, content: await preparePostArticle(userId, { ...article, content }, item) };
 }
 
 export async function publishWebGroupAutoPostNow(userId, groupId, phoneNumber, autoPostId) {
@@ -780,8 +801,9 @@ export async function publishWebGroupAutoPostNow(userId, groupId, phoneNumber, a
       seenUrls: seenAutoPostUrls(user, access.groupId),
     });
     article.content = await fetchMawdoo3ArticleContent(article.url);
+    const prepared = await preparePostArticle(access.userId, article, item);
     reserveAutoPostUrl(access.userId, access.groupId, article.url);
-    await access.sock.sendMessage(access.groupId, { text: postTextForArticle(article, item.excerptLength) });
+    await access.sock.sendMessage(access.groupId, { text: `📖 ${article.title}\n\n${prepared}` });
     saveAutoPostResult(access.userId, access.groupId, item.id, {
       lastSentAt: new Date().toISOString(),
       lastError: null,
