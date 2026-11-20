@@ -482,7 +482,7 @@ const HELP_SECTIONS = {
   },
   games: {
     title: "أوامر الألعاب",
-    text: "• .الألعاب — قائمة الألعاب\n• .اكس_او — مباراة X و O للاعبين\n• .تحدي @الخصم — تحدٍ آلي بين عضوين\n• .زعيم — حالة زعيم المجموعة\n• .صيد الكلمات — بدء صيد كلمة",
+    text: "• .الألعاب — قائمة الألعاب\n• .اكس_او — مباراة X و O للاعبين\n• .لودو — لعبة لودو للاعبين إلى أربعة\n• .تحدي @الخصم — تحدٍ آلي بين عضوين\n• .زعيم — حالة زعيم المجموعة\n• .صيد الكلمات — بدء صيد كلمة",
   },
   challenges: {
     title: "أوامر التحديات",
@@ -509,6 +509,7 @@ async function sendHelpMenu(sock, groupId) {
 async function sendGamesMenu(sock, groupId) {
   return sendInteractiveList(sock, groupId, "اختر لعبة أو نشاطاً لمعرفة طريقة تشغيله.", "الألعاب والأنشطة", [
     { id: "gw:games:xo", title: "لعبة X و O", description: "مباراة مباشرة بين عضوين" },
+    { id: "gw:games:ludo", title: "لودو رويال", description: "لعبة من ٢ إلى ٤ لاعبين" },
     { id: "gw:games:challenges", title: "تحديات الأعضاء", description: "15 نوعاً من التحديات الآلية" },
     { id: "gw:games:boss", title: "زعيم المجموعة", description: "هجوم جماعي على الزعيم" },
     { id: "gw:games:treasure", title: "البحث عن الكنز", description: "حل الألغاز للفوز" },
@@ -555,6 +556,7 @@ async function handleGroupWorldInteraction(userId, sock, groupId, memberId, inte
     const action = interactionId.slice("gw:games:".length);
     const instructions = {
       xo: "لبدء مباراة لاعبين: .اكس_او",
+      ludo: "لبدء طاولة لودو لاثنين إلى أربعة لاعبين: .لودو",
       challenges: "لبدء تحدٍ: .تحدي @الخصم — ثم يقبل الخصم باسم التحدي",
       boss: "عرض حالة الزعيم: .زعيم · المساهمة في الهجوم: .زعيم هجوم",
       treasure: "بدء البحث عن الكنز أو عرض التلميح: .كنز · أرسل الحل: .حل <الإجابة>",
@@ -605,6 +607,11 @@ async function commandReply(sock, groupId, memberId, message, text, isBotOwner =
 
   if (commandToken === ".مساعدة") {
     return sendHelpMenu(sock, groupId);
+  }
+
+  if ([".لودو", ".ludo"].includes(commandToken.toLowerCase())) {
+    const {sendLudoGame}=await import("../../services/ludo-game.mjs");
+    return sendLudoGame({sock,chatId:groupId});
   }
 
   if (commandToken === ".اكس_او") {

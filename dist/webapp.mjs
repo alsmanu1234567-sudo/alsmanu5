@@ -36,6 +36,7 @@ import {
   previewWebGroupAutoPost,
   publishWebGroupAutoPostNow,
 } from "./handlers/groups-handler.mjs";
+import {ludoEngine} from "../services/ludo-game.mjs";
 import { getSharedState, joinShared, moveShared } from "../services/xo-shared.mjs";
 import { getMultiState, moveMulti, acceptMulti } from "../services/xo-multiplayer.mjs";
 import { registerGroupWorldWebApp } from "./group-world-web.mjs";
@@ -82,6 +83,14 @@ export function registerWebApp(app, { replyService } = {}) {
     const navigation = '<a class="btn btn-s btn-sm" style="margin-top:10px;text-decoration:none" href="/group-world" onclick="location.href=\'/group-world\'+location.search;return false">🌍 عالم المجموعات</a>';
     res.end(HTML_PAGE.replace('<div class="hdr">', `<div class="hdr">\n  ${navigation}`));
   });
+
+  app.get("/ludo", (_req, res) => { res.setHeader("Content-Type", "text/html; charset=utf-8"); res.setHeader("Cache-Control", "no-store"); res.setHeader("Referrer-Policy", "no-referrer"); res.end(readFileSync(fileURLToPath(new URL("../public/ludo.html", import.meta.url)))); });
+  const ludoGuard = fn => async(req,res) => {res.setHeader("Cache-Control","no-store");try{res.json(await fn(req.headers["x-ludo-game"],req.headers["x-ludo-seat"],req));}catch(e){res.status(400).json({error:e?.message||"تعذر تنفيذ الحركة"});}};
+  app.get("/api/ludo/state",ludoGuard(async(id,seat)=>ludoEngine.state(id,seat)));
+  app.post("/api/ludo/join",parseJson,ludoGuard(async(id,seat,req)=>ludoEngine.join(id,seat,req.body?.name)));
+  app.post("/api/ludo/start",parseJson,ludoGuard(async(id,seat)=>ludoEngine.start(id,seat)));
+  app.post("/api/ludo/roll",parseJson,ludoGuard(async(id,seat)=>ludoEngine.roll(id,seat)));
+  app.post("/api/ludo/move",parseJson,ludoGuard(async(id,seat,req)=>ludoEngine.move(id,seat,req.body?.piece)));
 
   app.get("/xo-shared", (_req, res) => { res.setHeader("Content-Type", "text/html; charset=utf-8"); res.setHeader("Cache-Control", "no-store"); res.setHeader("Referrer-Policy", "no-referrer"); res.end(readFileSync(fileURLToPath(new URL("../public/xo-shared.html", import.meta.url)))); });
   const sharedGuard = fn => async(req,res) => { res.setHeader("Cache-Control","no-store"); try {res.json(await fn(req.headers["x-xo-game"],req.headers["x-xo-seat"],req));}catch(e){res.status(400).json({error:e?.message||"تعذر تنفيذ الحركة"});} };

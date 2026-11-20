@@ -124760,6 +124760,7 @@ function replyTypeKeyboard() {
       [{ text: "\u{1F3AC} \u0641\u064A\u062F\u064A\u0648", callback_data: "rtype_video" }, { text: "\u{1F4C4} \u0645\u0644\u0641", callback_data: "rtype_document" }, { text: "\u{1F60A} \u0645\u0644\u0635\u0642", callback_data: "rtype_sticker" }],
       [{ text: "\u{1F916} \u0631\u062F \u0628\u0627\u0644\u0630\u0643\u0627\u0621 \u0627\u0644\u0627\u0635\u0637\u0646\u0627\u0639\u064A (NVIDIA)", callback_data: "rtype_ai" }],
       [{ text: "\u{1F3AE} \u0644\u0639\u0628\u0629 X \u0648 O \u0636\u062F \u0627\u0644\u0628\u0648\u062A", callback_data: "rtype_xo" }],
+      [{ text: "🎲 لودو رويال جماعية", callback_data: "rtype_ludo" }],
       [{ text: "🎮 XO نافذة ضد البوت", callback_data: "rtype_xo_ultra" }, { text: "👥 XO نافذة شخصين", callback_data: "rtype_xo_multi" }],
       [{ text: "🔘 أزرار رد سريع", callback_data: "rtype_button_quick" }, { text: "🔗 أزرار روابط", callback_data: "rtype_button_url" }],
       [{ text: "📋 قائمة خيارات", callback_data: "rtype_button_list" }],
@@ -293975,6 +293976,11 @@ function registerMessageHandler(sock, userId) {
         if (reply.replyType === "xo_ultra") {
           try { const { sendXoUltra } = await import("../services/xo-ultra.mjs"); await sendXoUltra(sock, jid, {fallback:reply.xoFallbackEnabled !== false, fallbackText:reply.xoFallbackText||""}); }
           catch (err) { logger.error({err}, "XO ULTRA failed"); await sock.sendMessage(jid, {text:"تعذّر فتح لعبة XO حالياً."}); }
+          break;
+        }
+        if (reply.replyType === "ludo") {
+          try { const {sendLudoGame}=await import("../services/ludo-game.mjs"); await sendLudoGame({sock,chatId:jid,fallback:reply.xoFallbackEnabled!==false,fallbackText:reply.xoFallbackText||""}); }
+          catch(err){logger.error({err},"Ludo auto reply failed");await sock.sendMessage(jid,{text:err?.message||"تعذر بدء لودو"});}
           break;
         }
         if (reply.replyType === "xo_multi") {

@@ -289,3 +289,5 @@ test('group XO command sends a shared game to the group without private messages
   assert.match(sent.find(x=>x.text)?.text,/\/xo-shared#/);
   assert.equal((await service.getGroup(GROUP)).games.filter(g=>g.status==='active').length,0);
 });
+
+test('group .لودو sends the rich multiplayer game to the group',async t=>{const {sock,sent}=await setup(t);const old=process.env.WEBAPP_URL;process.env.WEBAPP_URL='https://example.test';t.after(()=>{if(old===undefined)delete process.env.WEBAPP_URL;else process.env.WEBAPP_URL=old});const dest=[];const relay=sock.relayMessage,send=sock.sendMessage;sock.relayMessage=async(j,...x)=>{dest.push(j);return relay(j,...x)};sock.sendMessage=async(j,...x)=>{dest.push(j);return send(j,...x)};await handleGroupWorldMessage('web-owner',sock,message('ludo-command','.لودو'),'notify');assert(dest.length>=2);assert(dest.every(x=>x===GROUP));assert(sent.some(x=>x.rawInteractive?.botForwardedMessage));assert(sent.some(x=>x.text?.includes('/ludo#')))});

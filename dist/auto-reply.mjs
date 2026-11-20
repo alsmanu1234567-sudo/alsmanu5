@@ -115,9 +115,9 @@ async function handleReplyTypeCallbackInternal(bot2, chatId, userId, data) {
     await bot2.sendMessage(chatId, `🔘 إعداد الأزرار\n\nأرسل نص الرسالة في السطر الأول، ثم كل خيار في سطر بالشكل:\n${details}\n\nمثال:\nأهلاً بك، اختر خياراً:\nالخيار الأول|${replyType === 'button_url' ? 'https://example.com' : 'هذا هو الرد الأول'}\n\nمن 1 إلى 9 خيارات.`);
     return;
   }
-  if (data === "rtype_xo_ultra" || data === "rtype_xo_multi") {
-    const replyType = data === "rtype_xo_multi" ? "xo_multi" : "xo_ultra";
-    setState(userId, "awaiting_xo_fallback_choice", {replyType, replyContent:replyType === "xo_multi" ? "__xo_multi__" : "__xo_ultra__"});
+  if (data === "rtype_xo_ultra" || data === "rtype_xo_multi" || data === "rtype_ludo") {
+    const replyType = data === "rtype_ludo" ? "ludo" : data === "rtype_xo_multi" ? "xo_multi" : "xo_ultra";
+    setState(userId, "awaiting_xo_fallback_choice", {replyType, replyContent:replyType === "ludo" ? "__ludo__" : replyType === "xo_multi" ? "__xo_multi__" : "__xo_ultra__"});
     await bot2.sendMessage(chatId, "🎮 إعداد رسالة الرابط البديل. اختر الافتراضية أو أوقفها أو اكتب رسالة خاصة؛ _get يوضع مكان الرابط.", {reply_markup:{inline_keyboard:[[{text:"✅ الافتراضية",callback_data:"rtype_xosetting_default"},{text:"🚫 إيقاف الرسالة",callback_data:"rtype_xosetting_off"}],[{text:"✍️ رسالة خاصة",callback_data:"rtype_xosetting_custom"}]]}});
     return;
   }
@@ -247,7 +247,7 @@ async function handleScopeCallbackInternal(bot2, chatId, userId, data) {
     target: target || "all",
     targetNumbers: targetNumbers || [],
     scope,
-    ...(["xo_ultra","xo_multi"].includes(replyType) ? {xoFallbackEnabled:state.data.xoFallbackEnabled !== false,xoFallbackText:state.data.xoFallbackText||""} : {})
+    ...(["xo_ultra","xo_multi","ludo"].includes(replyType) ? {xoFallbackEnabled:state.data.xoFallbackEnabled !== false,xoFallbackText:state.data.xoFallbackText||""} : {})
   };
   clearTextParts(userId);
   saveAutoReply(userId, newReply);
@@ -1380,7 +1380,7 @@ export async function handleAutoReplyCallback(bot2, chatId, userId, data) {
       "## 2. هيكل ملف الرد (JSON)",
       "```json\n" + sampleJson + "\n```",
       "## 3. شرح الحقول",
-      "- **trigger**: الكلمة المفتاحية\n- **triggerType**: [exact | contains | starts | ends | regex]\n- **replyType**: [text | ai | reaction | morphing | rotating | image | audio | video | document | sticker | xo | xo_ultra | xo_multi | button_quick | button_url | button_list]\n- **replyContent**: نص أو URL أو \"__ai_default__\" للذكاء\n- **target**: [all | specific | multiple | self] | **scope**: [both | private | groups]\n- **dailyLimit**: حد يومي (0 = بلا حد) | **perUserLimit**: حد لكل شخص كل 8ساعات",
+      "- **trigger**: الكلمة المفتاحية\n- **triggerType**: [exact | contains | starts | ends | regex]\n- **replyType**: [text | ai | reaction | morphing | rotating | image | audio | video | document | sticker | xo | xo_ultra | xo_multi | ludo | button_quick | button_url | button_list]\n- **replyContent**: نص أو URL أو \"__ai_default__\" للذكاء\n- **target**: [all | specific | multiple | self] | **scope**: [both | private | groups]\n- **dailyLimit**: حد يومي (0 = بلا حد) | **perUserLimit**: حد لكل شخص كل 8ساعات",
       "## 4. مثال رد دوري",
       "```json\n" + rotEx + "\n```",
       "## 5. مثال رد بالذكاء الاصطناعي",
