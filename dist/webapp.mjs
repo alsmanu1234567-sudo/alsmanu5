@@ -64,7 +64,7 @@ function guard(handler) {
 }
 
 // ─── التسجيل في تطبيق Express ──────────────────────────────────────
-export function registerWebApp(app, { replyService, aiService } = {}) {
+export function registerWebApp(app, { replyService, aiService, myMsgsService } = {}) {
   // JSON body parsing خاص بمسارات الويب آب فقط (لا يؤثر على بقية البوت)
   const parseJson = (req, res, next) => {
     if (req.headers["content-type"]?.includes("application/json") && !req.body) {
@@ -110,6 +110,15 @@ export function registerWebApp(app, { replyService, aiService } = {}) {
   app.post("/api/xo-multi/move", parseJson, xoGuard(async (t,req) => moveMulti(t,req.body?.position)));
 
   app.get("/xo-ultra", (_req, res) => { res.setHeader("Content-Type", "text/html; charset=utf-8"); res.setHeader("Cache-Control", "no-store"); res.end(readFileSync(fileURLToPath(new URL("../public/xo-ultra.html", import.meta.url)))); });
+
+  const myMsgsWeb = () => {if(!myMsgsService)throw Error('قسم رسائلي غير جاهز');return myMsgsService;};
+  app.get('/my-msgs-web.js',(_req,res)=>{res.setHeader('Content-Type','application/javascript; charset=utf-8');res.setHeader('Cache-Control','no-store');res.end(readFileSync(fileURLToPath(new URL('../public/my-msgs-web.js',import.meta.url))));});
+  app.get('/api/my-msgs/overview',guard(async(uid,req)=>myMsgsWeb().overview(uid,req.query?.phone)));
+  app.post('/api/my-msgs/feature',parseJson,guard(async(uid,req)=>myMsgsWeb().feature(uid,req.body?.phone,req.body?.id,req.body||{})));
+  app.post('/api/my-msgs/custom',parseJson,guard(async(uid,req)=>myMsgsWeb().custom(uid,req.body?.phone,req.body||{})));
+  app.post('/api/my-msgs/delete',parseJson,guard(async(uid,req)=>myMsgsWeb().remove(uid,req.body?.phone,req.body?.id)));
+  app.post('/api/my-msgs/group',parseJson,guard(async(uid,req)=>myMsgsWeb().group(uid,req.body?.phone,req.body?.jid)));
+  app.post('/api/my-msgs/pair',parseJson,guard(async(uid,req)=>myMsgsWeb().pairing(uid,req.body?.phone)));
 
   const aiWeb = () => { if (!aiService) throw Error("خدمة الذكاء غير جاهزة"); return aiService; };
   app.get('/ai-web.js', (_req,res)=>{res.setHeader('Content-Type','application/javascript; charset=utf-8');res.setHeader('Cache-Control','no-store');res.end(readFileSync(fileURLToPath(new URL('../public/ai-web.js',import.meta.url))));});
@@ -344,6 +353,7 @@ const HTML_PAGE = `<!DOCTYPE html>
 <title>لوحة البوت</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <link rel="stylesheet" href="/auto-replies.css">
+<script defer src="/my-msgs-web.js" onload="if (typeof TAB !== 'undefined' && TAB === 'mymsgs') render()"></script>
 <script defer src="/ai-web.js" onload="if (typeof TAB !== 'undefined' && TAB === 'ai') render()"></script>
 <script defer src="/auto-replies.js" onload="if (typeof TAB !== 'undefined' && TAB === 'replies') render()"></script>
 <style>
@@ -485,6 +495,7 @@ body{background:radial-gradient(ellipse at 5% 0%,rgba(192,141,255,.18),transpare
   <button class="tab" data-tab="groups">👥 المجموعات</button>
   <button class="tab" data-tab="replies">💬 الردود</button>
   <button class="tab" data-tab="ai">✦ الذكاء</button>
+  <button class="tab" data-tab="mymsgs">📨 رسائلي</button>
 </div>
 
 <div class="container">
@@ -509,7 +520,7 @@ const TOKEN = qs.get("token") || localStorage.getItem("fw_token") || "";
 if (qs.get("token")) localStorage.setItem("fw_token", qs.get("token"));
 
 let ST = { numbers:[], channels:[], groups:[], rules:[], waConnected:false };
-let TAB = ["groups","replies","channels","ai"].includes(qs.get("section")) ? qs.get("section") : "rules";
+let TAB = ["groups","replies","channels","ai","mymsgs"].includes(qs.get("section")) ? qs.get("section") : "rules";
 let Q = "";
 const picCache = {};
 
@@ -548,7 +559,7 @@ async function load(){
     render();
   } catch(e){
     document.getElementById("subTitle").textContent = "⚠️ " + e.message;
-    if (TAB === "replies" || TAB === "ai") render();
+    if (TAB === "replies" || TAB === "ai" || TAB === "mymsgs") render();
     else document.getElementById("view").innerHTML = '<div class="empty"><div class="big">🔒</div>' + esc(e.message) + '<br>افتح الرابط من داخل البوت مجدداً.</div>';
   }
 }
@@ -601,14 +612,14 @@ async function addChannel(jsonStr){
 
 // ─── التبويبات ──────────────────────────────────────────────────
 function selectTab(tab, shouldRender=true){
-  TAB = ["groups", "channels", "replies", "ai"].includes(tab) ? tab : "rules";
+  TAB = ["groups", "channels", "replies", "ai", "mymsgs"].includes(tab) ? tab : "rules";
   document.querySelectorAll(".tab").forEach(t=>t.classList.toggle("act", t.dataset.tab===TAB));
   document.getElementById("fab").style.display = TAB==="rules" ? "" : "none";
   document.getElementById("srchIn").placeholder = TAB==="groups"
     ? "ابحث باسم المجموعة أو معرّفها…"
-    : TAB==="channels" ? "ابحث بالاسم… أو الصق رابط قناة واتساب" : TAB==="replies" ? "ابحث عن رد أو مفتاح…" : TAB==="ai" ? "ابحث عن نموذج أو رقم…" : "ابحث باسم القاعدة…";
+    : TAB==="channels" ? "ابحث بالاسم… أو الصق رابط قناة واتساب" : TAB==="replies" ? "ابحث عن رد أو مفتاح…" : TAB==="ai" ? "ابحث عن نموذج أو رقم…" : TAB==="mymsgs" ? "ابحث عن ميزة…" : "ابحث باسم القاعدة…";
   const title = document.querySelector(".hdr h1");
-  if (title?.firstChild) title.firstChild.nodeValue = TAB==="groups" ? "👥 إدارة المجموعات " : TAB==="replies" ? "💬 الردود التلقائية " : TAB==="ai" ? "✦ الذكاء الاصطناعي " : "📡 إدارة التحويلات ";
+  if (title?.firstChild) title.firstChild.nodeValue = TAB==="groups" ? "👥 إدارة المجموعات " : TAB==="replies" ? "💬 الردود التلقائية " : TAB==="ai" ? "✦ الذكاء الاصطناعي " : TAB==="mymsgs" ? "📨 رسائلي " : "📡 إدارة التحويلات ";
   if (shouldRender) render();
 }
 
@@ -629,6 +640,7 @@ function render(){
   const v = document.getElementById("view");
   if (TAB === "rules") return renderRules(v);
   if (TAB === "channels") return renderChannels(v);
+  if (TAB === "mymsgs") return window.MyMsgsUI ? window.MyMsgsUI.render(v, Q) : (v.innerHTML = '<div class="empty">جارٍ تحميل رسائلي…</div>');
   if (TAB === "ai") return window.AiUI ? window.AiUI.render(v, Q) : (v.innerHTML = '<div class="empty">جارٍ تحميل قسم الذكاء…</div>');
   if (TAB === "replies") return window.RepliesUI ? window.RepliesUI.render(v, Q) : (v.innerHTML = '<div class="empty">جارٍ تحميل قسم الردود…</div>');
   renderGroups(v);

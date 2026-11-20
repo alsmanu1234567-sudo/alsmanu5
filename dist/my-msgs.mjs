@@ -52,7 +52,7 @@ const DEFAULTS = {
   statusAutoSaveCmd: "/statusas",
 };
 
-const COMMAND_CONTROL_FEATURES = [
+export const COMMAND_CONTROL_FEATURES = [
   { id: "pic", name: "صورة البروفايل", commandKey: "profilePicCmd", defaultCommand: "/mg", enabledKey: "profilePicEnabled", defaultEnabled: true, help: "أرسل الكود لجلب صورة المحادثة، أو أضف me لتعيينها صورةً لحسابك." },
   { id: "gm", name: "تصدير الأعضاء", commandKey: "exportMembersCmd", defaultCommand: "/gm", enabledKey: "exportMembersEnabled", defaultEnabled: true, help: "أرسل الكود داخل مجموعة لتصدير أرقام أعضائها." },
   { id: "copy", name: "إعادة الإرسال", commandKey: "copyCmd", defaultCommand: "/copy", enabledKey: "copyEnabled", defaultEnabled: true, help: "ردّ على رسالة بالكود لإعادة إرسالها." },
