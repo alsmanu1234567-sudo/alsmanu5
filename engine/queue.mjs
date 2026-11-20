@@ -93,22 +93,8 @@ export class Queue {
     return { pending: this.#pending.length, running: this.#running, zombies: this.#zombies, ...this.#stats };
   }
 
-  /**
-   * [ZOMBIE-FIX] إنعاش قسري — صمام أمان أخير.
-   * إذا اكتشف الـ watchdog أن القناة متجمدة (running ممتلئ بلا أي تقدم)
-   * يُصفّر العدّاد ويعيد تشغيل الطابور. المهام المتجمدة تُترك كزومبي.
-   * @returns {number} عدد الخانات المحررة
-   */
-  forceRecover() {
-    const stuck = this.#running;
-    if (stuck > 0) {
-      this.#zombies += stuck;
-      this.#running = 0;
-      this.#stats.recovered += stuck;
-      this.#tick();
-    }
-    return stuck;
-  }
+  /** لا يمكن تحرير خانة مهمة معلّقة فعلياً دون إلغائها؛ لا نكسر سقف التزامن. */
+  forceRecover() { return 0; }
 
   /** عدد المهام المعلّقة حالياً. */
   get size() { return this.#pending.length; }
@@ -126,7 +112,9 @@ export class Queue {
     this.#running++;
     item.attempts++;
 
-    const fnPromise = item.fn(); // نبدأ المهمة فوراً
+    let fnPromise;
+    try { fnPromise = Promise.resolve(item.fn()); }
+    catch (error) { fnPromise = Promise.reject(error); }
 
     try {
       // ── مع timeout ──────────────────────────────────────────────
@@ -161,22 +149,13 @@ export class Queue {
       const isTimeout = e?._queueTimeout === true;
 
       if (isTimeout) {
-        // ── [ZOMBIE-FIX] Timeout: حرّر الـ slot فوراً — لا تنتظر المهمة المعلّقة
-        //
-        // الكود السابق كان يعمل `await fnPromise` قبل تحرير الـ slot.
-        // إذا كانت fnPromise معلّقة للأبد (سوكت ميت، تنزيل متجمد، شبكة مقطوعة)
-        // فالـ slot لا يتحرر أبداً. مع maxConcurrent=3 في قناة الأوامر،
-        // ثلاث مهام معلّقة = موت كامل ودائم لأوامر "رسالي" حتى إعادة التشغيل.
-        //
-        // الحل: نحرر الـ slot فوراً ونتتبع المهمة كـ "زومبي" في عدّاد منفصل.
-        // عندما تنتهي فعلاً (إن انتهت) ينقص العدّاد. القناة لا تموت أبداً.
+        // المهلة تُبلغ المستدعي فوراً؛ المهمة لا تُلغى بمجرد انتهاء المؤقت.
+        // نحتفظ بالخانة حتى تنتهي فعلياً حتى لا يتجاوز التزامن الحد.
         this.#stats.timedOut++;
         item.reject(e);
         this.#zombies++;
-        fnPromise.then(
-          () => { this.#zombies--; },
-          () => { this.#zombies--; }
-        );
+        try { await fnPromise; } catch { /* الخطأ أُبلغ بالفعل */ }
+        this.#zombies--;
         this.#running--;
         this.#tick();
         return;

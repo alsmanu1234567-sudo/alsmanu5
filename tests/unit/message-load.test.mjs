@@ -1,0 +1,12 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {Queue} from '../../engine/queue.mjs';
+import {setupMsgPipeline,teardown,getUserStats,getPipelineStats} from '../../engine/msg-pipeline.mjs';
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const deferred=()=>{let resolve;const promise=new Promise(r=>resolve=r);return {promise,resolve}};
+const sock=()=>{let cb;return {ev:{on(_name,fn){cb=fn}},emit(data){cb(data)}}};
+const message=(id,fromMe=true,jid='group@g.us')=>({key:{remoteJid:jid,id:String(id),fromMe},message:{conversation:'x'}});
+test('queue timeout keeps true concurrency bounded and releases after actual completion',async()=>{const q=new Queue({maxConcurrent:2,timeout:10}),gate=deferred();let active=0,peak=0;const tasks=Array.from({length:6},(_,i)=>q.push(String(i),async()=>{active++;peak=Math.max(peak,active);await gate.promise;active--}).catch(()=>{}));await sleep(35);assert.equal(active,2);assert.equal(q.getStats().running,2);assert.equal(q.getStats().pending,4);assert.equal(q.forceRecover(),0);assert.equal(active,2);gate.resolve();await Promise.all(tasks);assert.equal(peak,2);assert.equal(q.getStats().running,0)});
+test('queue catches synchronous throws and plain return values',async()=>{const q=new Queue({maxConcurrent:1});await assert.rejects(q.push('bad',()=>{throw Error('bad')}),/bad/);assert.equal(await q.push('ok',()=>42),42);assert.equal(q.getStats().running,0)});
+test('burst limits each users queued command backlog and teardown clears it',async()=>{const s=sock(),gate=deferred();let running=0;setupMsgPipeline(s,'load-test',async()=>{},async()=>{running++;await gate.promise;running--});for(let i=0;i<150;i++)s.emit({type:'notify',messages:[message(i)]});await sleep(10);assert.equal(running,11);assert.equal(getUserStats('load-test').dropped,11);assert.equal(getPipelineStats().lanes.command.pending,128);assert.equal(teardown('load-test'),128);gate.resolve();await sleep(20);assert.equal(running,0)});
+test('mixed append batch does not process non-newsletter messages',async()=>{const s=sock(),handled=[];setupMsgPipeline(s,'mixed-test',async(_sock,m)=>handled.push(m.key.remoteJid),async()=>{});s.emit({type:'append',messages:[message('1',false,'a@newsletter'),message('2',false,'b@s.whatsapp.net')]});await sleep(20);assert.deepEqual(handled,['a@newsletter']);teardown('mixed-test')});

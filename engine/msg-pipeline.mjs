@@ -5,14 +5,14 @@ import { getMessageCutoff, isMessageAfterCutoff, guardMessageSocket } from "./me
  * خط معالجة الرسائل ذو الأولوية — يمنع تسونامي newsletter من إيقاف "رسالي".
  *
  * التطويرات v2:
- *  • timeout لكل lane: COMMAND=60s، NOTIFY=30s، NEWSLETTER=10s
+ *  • timeout للإبلاغ؛ الخانة لا تتحرر حتى تتوقف المهمة فعلياً
  *  • teardown(userId) — إلغاء كل المهام المعلّقة لمستخدم عند قطع اتصاله
  *  • إحصائيات per-user منفصلة
  *  • تسجيل عيّنة من الرسائل المتجاهلة (كل 10 رسائل) بدل الصمت
  *  • حراسة مزدوجة: isNewsletter تُكتشف أيضاً من remoteJid
  *
  * الـ Lanes (مشتركة بين جميع المستخدمين — الأولوية تكفل العزل):
- *   LANE_COMMAND    priority=10 — concurrency=3 — timeout=60s — لا سقف
+ *   LANE_COMMAND    priority=10 — concurrency=3 — انتظار حتى 128 لكل مستخدم
  *   LANE_NOTIFY     priority=5  — concurrency=5 — timeout=30s — سقف=200
  *   LANE_NEWSLETTER priority=1  — concurrency=2 — timeout=10s — سقف=50
  *
@@ -26,7 +26,7 @@ import { getMessageCutoff, isMessageAfterCutoff, guardMessageSocket } from "./me
 import { Queue } from "./queue.mjs";
 
 // ── Lanes ────────────────────────────────────────────────────────
-const LANE_COMMAND    = new Queue({ maxConcurrent: 3, maxRetries: 1, retryDelay: 200, timeout: 60_000 });
+const LANE_COMMAND    = new Queue({ maxConcurrent: 3, maxRetries: 0, timeout: 60_000 });
 const LANE_NOTIFY     = new Queue({ maxConcurrent: 5, maxRetries: 0,                  timeout: 30_000 });
 const LANE_NEWSLETTER = new Queue({ maxConcurrent: 2, maxRetries: 0,                  timeout: 10_000 });
 
@@ -58,9 +58,13 @@ const DROP_LOG_SAMPLE = 10; // سجّل واحدة من كل 10
 // رسائل الآخرين، أمرك ينفَّذ لحظة كتابته.
 //
 // حماية: سقف 8 أوامر متزامنة لكل مستخدم (يستحيل تجاوزه بالكتابة اليدوية)
-// وعند التجاوز يتحول الفائض للطابور القديم بدل الإسقاط.
+// وعند التجاوز ينتظر الفائض في طابور محدود؛ عند امتلائه يُسجّل الإسقاط.
 // ══════════════════════════════════════════════════════════════════
 const CMD_INFLIGHT_MAX = 8;
+// لا نسمح بتراكم غير محدود، مع عزل حد المستخدم عن بقية الحسابات.
+const CMD_PENDING_PER_USER = 128;
+const CMD_PENDING_GLOBAL = 2048;
+const _cmdPending = new Map();
 /** @type {Map<string, number>} */
 const _cmdInflight = new Map();
 
@@ -68,11 +72,20 @@ function _execCommandDirect(sock, userId, msg, applyForward, mainHandler) {
   const cur = _cmdInflight.get(userId) || 0;
   if (cur >= CMD_INFLIGHT_MAX) {
     // فيضان غير طبيعي — الفائض يذهب للطابور القديم (لا يُفقد)
+    const waiting = _cmdPending.get(userId) || 0;
+    if (waiting >= CMD_PENDING_PER_USER || LANE_COMMAND.getStats().pending >= CMD_PENDING_GLOBAL) {
+      _stats.dropped++; _uStat(userId).dropped++;
+      if ((++_dropCounter % DROP_LOG_SAMPLE) === 0) process.stderr.write(`[PIPELINE] طابور الأوامر ممتلئ — تم تجاهل ${_stats.dropped} رسالة إجمالاً\n`);
+      return;
+    }
+    _cmdPending.set(userId, waiting + 1);
+    let queued = true;
+    const decrement = () => { if (!queued) return; queued = false; const n = (_cmdPending.get(userId) || 1) - 1; if (n <= 0) _cmdPending.delete(userId); else _cmdPending.set(userId, n); };
     LANE_COMMAND.push(
       `cmd:${userId}:${msg.key?.remoteJid || ""}`,
-      () => _processMsg(sock, userId, msg, applyForward, mainHandler),
+      () => { decrement(); return _processMsg(sock, userId, msg, applyForward, mainHandler); },
       10
-    ).catch(() => {});
+    ).catch(() => {}).finally(decrement);
     return;
   }
   _cmdInflight.set(userId, cur + 1);
@@ -81,22 +94,16 @@ function _execCommandDirect(sock, userId, msg, applyForward, mainHandler) {
     if (n <= 0) _cmdInflight.delete(userId);
     else _cmdInflight.set(userId, n);
   };
-  // تنفيذ مباشر — العدّاد يُحرَّر عند الانتهاء أو بعد 90 ثانية كحد أقصى
-  let released = false;
-  const releaseOnce = () => { if (!released) { released = true; done(); } };
-  const guard = setTimeout(releaseOnce, 90_000);
-  if (typeof guard.unref === "function") guard.unref();
-  _processMsg(sock, userId, msg, applyForward, mainHandler)
-    .then(() => { clearTimeout(guard); releaseOnce(); })
-    .catch(() => { clearTimeout(guard); releaseOnce(); });
+  // لا تُحرّر الخانة بالوقت وحده: المهمة قد تظل تعمل في الخلفية.
+  _processMsg(sock, userId, msg, applyForward, mainHandler).catch(() => {}).finally(done);
 }
 
 // ══════════════════════════════════════════════════════════════════
 // [WATCHDOG] كلب الحراسة — إنعاش ذاتي كل 60 ثانية
 // ──────────────────────────────────────────────────────────────────
 // يراقب القنوات: إذا كانت قناة ممتلئة (running == max) مع مهام منتظرة
-// وبدون أي تقدم لـ 3 فحوصات متتالية (3 دقائق) → إنعاش قسري فوري.
-// البوت يعالج نفسه بنفسه — لا حاجة للتنظيف اليدوي أبداً.
+// وبدون أي تقدم لـ 3 فحوصات متتالية (3 دقائق) → تحذير في السجل.
+// لا يمكن إلغاء مهمة JavaScript معلّقة قسراً بمجرد إسقاط الخانة.
 // ══════════════════════════════════════════════════════════════════
 const _wdState = new Map(); // laneName -> { lastProcessed, stalls }
 let _wdRecoveries = 0;
@@ -117,7 +124,7 @@ function _watchdogCheck() {
       const freed = lane.forceRecover();
       _wdRecoveries += freed;
       _wdState.set(name, { lastProcessed: s.processed, stalls: 0 });
-      process.stderr.write(`[WATCHDOG] قناة ${name} كانت متجمدة — تم إنعاش ${freed} خانة تلقائياً (إجمالي الإنعاشات: ${_wdRecoveries})\n`);
+      process.stderr.write(`[WATCHDOG] قناة ${name} متوقفة بمهام لم تنتهِ؛ لم نحرر خانات وهمية حفاظاً على حد التزامن. قد تحتاج لإعادة التشغيل.\n`);
     }
   }
 }
@@ -146,7 +153,8 @@ export function setupMsgPipeline(sock, userId, applyForward, mainHandler, hooks 
     if (type !== "notify" && !isNewsletter) return;
 
     for (const msg of messages) {
-      _routeMessage(sock, userId, msg, type, isNewsletter, applyForward, mainHandler);
+      const messageIsNewsletter = type === "append" && (msg.key?.remoteJid || "").endsWith("@newsletter");
+      if (type === "notify" || messageIsNewsletter) _routeMessage(sock, userId, msg, type, messageIsNewsletter, applyForward, mainHandler);
     }
   });
 }
@@ -162,7 +170,7 @@ export function teardown(userId) {
   n += LANE_NOTIFY.clearByLabel(`ntf:${userId}:`);
   n += LANE_NEWSLETTER.clearByLabel(`nl:${userId}:`);
   _userStats.delete(userId);
-  _cmdInflight.delete(userId); // [IMMORTAL-COMMANDS] تصفير عدّاد الأوامر المباشرة
+  // المهام الجارية لا تُلغى عند قطع الاتصال، فلا نصفر عدادها.
   return n;
 }
 
