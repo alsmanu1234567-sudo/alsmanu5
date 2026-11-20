@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 // ═══════════════════════════════════════════════════════════════════
 // webapp.mjs — واجهة ويب داخلية لإدارة التحويلات
 // تعمل داخل نفس خادم البوت — لا تحتاج أي شيء خارجي
@@ -59,12 +61,12 @@ function guard(handler) {
 }
 
 // ─── التسجيل في تطبيق Express ──────────────────────────────────────
-export function registerWebApp(app) {
+export function registerWebApp(app, { replyService } = {}) {
   // JSON body parsing خاص بمسارات الويب آب فقط (لا يؤثر على بقية البوت)
   const parseJson = (req, res, next) => {
     if (req.headers["content-type"]?.includes("application/json") && !req.body) {
       let raw = "";
-      req.on("data", (c) => { raw += c; if (raw.length > 1e6) req.destroy(); });
+      req.on("data", (c) => { raw += c; if (raw.length > 6e6) req.destroy(); });
       req.on("end", () => {
         try { req.body = raw ? JSON.parse(raw) : {}; } catch { req.body = {}; }
         next();
@@ -77,6 +79,19 @@ export function registerWebApp(app) {
     const navigation = '<a class="btn btn-s btn-sm" style="margin-top:10px;text-decoration:none" href="/group-world" onclick="location.href=\'/group-world\'+location.search;return false">🌍 عالم المجموعات</a>';
     res.end(HTML_PAGE.replace('<div class="hdr">', `<div class="hdr">\n  ${navigation}`));
   });
+
+  const reply = () => { if (!replyService) throw new Error('خدمة الردود غير جاهزة'); return replyService; };
+  app.get('/auto-replies.js', (_req, res) => { res.setHeader('Content-Type','application/javascript; charset=utf-8'); res.end(readFileSync(fileURLToPath(new URL('../public/auto-replies.js', import.meta.url)))); });
+  app.get('/auto-replies.css', (_req, res) => { res.setHeader('Content-Type','text/css; charset=utf-8'); res.end(readFileSync(fileURLToPath(new URL('../public/auto-replies.css', import.meta.url)))); });
+  app.get('/api/replies/list', guard(async uid => ({replies:reply().list(uid), numbers:reply().numbers(uid)})));
+  app.post('/api/replies/save', parseJson, guard(async (uid, req) => reply().save(uid, req.body || {})));
+  app.post('/api/replies/delete', parseJson, guard(async (uid, req) => reply().delete(uid, req.body?.id)));
+  app.post('/api/replies/toggle', parseJson, guard(async (uid, req) => reply().toggle(uid, req.body?.id, req.body?.enabled)));
+  app.post('/api/replies/all', parseJson, guard(async (uid, req) => reply().all(uid, req.body?.enabled)));
+  app.post('/api/replies/duplicate', parseJson, guard(async (uid, req) => reply().duplicate(uid, req.body?.id)));
+  app.post('/api/replies/import', parseJson, guard(async (uid, req) => reply().import(uid, req.body?.replies)));
+  app.post('/api/replies/upload', parseJson, guard(async (uid, req) => await reply().upload(uid, req.body || {})));
+  app.post('/api/replies/delay', parseJson, guard(async (uid, req) => reply().delay(uid, req.body?.id, req.body?.enabled)));
 
   app.get("/api/fw/overview", guard(async (uid) => webGetOverview(uid)));
 
@@ -283,6 +298,8 @@ const HTML_PAGE = `<!DOCTYPE html>
 <meta name="theme-color" content="#171331">
 <title>لوحة البوت</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link rel="stylesheet" href="/auto-replies.css">
+<script defer src="/auto-replies.js" onload="if (typeof TAB !== 'undefined' && TAB === 'replies') render()"></script>
 <style>
 :root{
   --bg:#0a0e1a;--card:#141927;--card2:#1c2436;--line:#252e45;
@@ -420,6 +437,7 @@ body{background:radial-gradient(ellipse at 5% 0%,rgba(192,141,255,.18),transpare
   <button class="tab act" data-tab="rules">📋 القواعد</button>
   <button class="tab" data-tab="channels">📺 القنوات</button>
   <button class="tab" data-tab="groups">👥 المجموعات</button>
+  <button class="tab" data-tab="replies">💬 الردود</button>
 </div>
 
 <div class="container">
@@ -444,7 +462,7 @@ const TOKEN = qs.get("token") || localStorage.getItem("fw_token") || "";
 if (qs.get("token")) localStorage.setItem("fw_token", qs.get("token"));
 
 let ST = { numbers:[], channels:[], groups:[], rules:[], waConnected:false };
-let TAB = qs.get("section") === "groups" ? "groups" : "rules";
+let TAB = ["groups","replies","channels"].includes(qs.get("section")) ? qs.get("section") : "rules";
 let Q = "";
 const picCache = {};
 
@@ -483,7 +501,8 @@ async function load(){
     render();
   } catch(e){
     document.getElementById("subTitle").textContent = "⚠️ " + e.message;
-    document.getElementById("view").innerHTML = '<div class="empty"><div class="big">🔒</div>' + esc(e.message) + '<br>افتح الرابط من داخل البوت مجدداً.</div>';
+    if (TAB === "replies") render();
+    else document.getElementById("view").innerHTML = '<div class="empty"><div class="big">🔒</div>' + esc(e.message) + '<br>افتح الرابط من داخل البوت مجدداً.</div>';
   }
 }
 
@@ -493,7 +512,7 @@ document.getElementById("srchIn").addEventListener("input", (e)=>{
   Q = e.target.value.trim();
   clearTimeout(srchTimer);
   const looksLikeChannel = Q.includes("whatsapp.com/channel/") || Q.endsWith("@newsletter");
-  if (looksLikeChannel) {
+  if (looksLikeChannel && TAB === "channels") {
     srchTimer = setTimeout(()=>previewChannel(Q), 450);
   } else {
     document.getElementById("chPreview").classList.add("hide");
@@ -535,14 +554,14 @@ async function addChannel(jsonStr){
 
 // ─── التبويبات ──────────────────────────────────────────────────
 function selectTab(tab, shouldRender=true){
-  TAB = tab === "groups" || tab === "channels" ? tab : "rules";
+  TAB = ["groups", "channels", "replies"].includes(tab) ? tab : "rules";
   document.querySelectorAll(".tab").forEach(t=>t.classList.toggle("act", t.dataset.tab===TAB));
   document.getElementById("fab").style.display = TAB==="rules" ? "" : "none";
   document.getElementById("srchIn").placeholder = TAB==="groups"
     ? "ابحث باسم المجموعة أو معرّفها…"
-    : TAB==="channels" ? "ابحث بالاسم… أو الصق رابط قناة واتساب" : "ابحث باسم القاعدة…";
+    : TAB==="channels" ? "ابحث بالاسم… أو الصق رابط قناة واتساب" : TAB==="replies" ? "ابحث عن رد أو مفتاح…" : "ابحث باسم القاعدة…";
   const title = document.querySelector(".hdr h1");
-  if (title?.firstChild) title.firstChild.nodeValue = TAB==="groups" ? "👥 إدارة المجموعات " : "📡 إدارة التحويلات ";
+  if (title?.firstChild) title.firstChild.nodeValue = TAB==="groups" ? "👥 إدارة المجموعات " : TAB==="replies" ? "💬 الردود التلقائية " : "📡 إدارة التحويلات ";
   if (shouldRender) render();
 }
 
@@ -563,6 +582,7 @@ function render(){
   const v = document.getElementById("view");
   if (TAB === "rules") return renderRules(v);
   if (TAB === "channels") return renderChannels(v);
+  if (TAB === "replies") return window.RepliesUI ? window.RepliesUI.render(v, Q) : (v.innerHTML = '<div class="empty">جارٍ تحميل قسم الردود…</div>');
   renderGroups(v);
 }
 

@@ -293928,7 +293928,20 @@ function registerMessageHandler(sock, userId) {
             matched = msgText === trigger;
         }
         if (!matched) continue;
-        incrementReplyStat(userId, reply.id);
+        if (reply.scheduleFrom && reply.scheduleTo) {
+          const now = /* @__PURE__ */ new Date();
+          const [fh, fm] = reply.scheduleFrom.split(":").map(Number);
+          const [th, tm] = reply.scheduleTo.split(":").map(Number);
+          const nowMins = now.getHours() * 60 + now.getMinutes();
+          const fromMins = fh * 60 + fm;
+          const toMins = th * 60 + tm;
+          if (fromMins <= toMins ? (nowMins < fromMins || nowMins > toMins) : (nowMins < fromMins && nowMins > toMins)) continue;
+        }
+        if (reply.langFilter) {
+          const isArabic = /[\u0600-\u06FF]/.test(text);
+          if (reply.langFilter === "arabic" && !isArabic) continue;
+          if (reply.langFilter === "english" && isArabic) continue;
+        }
         const numCfg = _findNumBySock(getUserNumbers(userId));
         if (numCfg?.randomDelayEnabled) {
           const delay2 = 1e3 + Math.floor(Math.random() * 4e3);
@@ -293938,7 +293951,6 @@ function registerMessageHandler(sock, userId) {
         const dailyCount = inMemoryDB[replyDailyKey] || 0;
         const dailyLimit = reply.dailyLimit || 0;
         if (dailyLimit > 0 && dailyCount >= dailyLimit) continue;
-        if (dailyLimit > 0) inMemoryDB[replyDailyKey] = dailyCount + 1;
 
         // حد أقصى لكل شخص كل 8 ساعات
         const perUserLim = reply.perUserLimit || 0;
@@ -293951,20 +293963,8 @@ function registerMessageHandler(sock, userId) {
           puData.count++;
           inMemoryDB[puKey] = puData;
         }
-        if (reply.scheduleFrom && reply.scheduleTo) {
-          const now = /* @__PURE__ */ new Date();
-          const [fh, fm] = reply.scheduleFrom.split(":").map(Number);
-          const [th, tm] = reply.scheduleTo.split(":").map(Number);
-          const nowMins = now.getHours() * 60 + now.getMinutes();
-          const fromMins = fh * 60 + fm;
-          const toMins = th * 60 + tm;
-          if (nowMins < fromMins || nowMins > toMins) continue;
-        }
-        if (reply.langFilter) {
-          const isArabic = /[\u0600-\u06FF]/.test(text);
-          if (reply.langFilter === "arabic" && !isArabic) continue;
-          if (reply.langFilter === "english" && isArabic) continue;
-        }
+        if (dailyLimit > 0) inMemoryDB[replyDailyKey] = dailyCount + 1;
+        incrementReplyStat(userId, reply.id);
         if (['button_quick', 'button_url', 'button_list'].includes(reply.replyType)) {
           try { await sendInteractiveAutoReply(sock, jid, reply); }
           catch (err) { logger.error({err}, 'Interactive auto-reply failed'); }
@@ -294037,7 +294037,7 @@ function registerMessageHandler(sock, userId) {
         }
         // ── وسائط محفوظة محلياً (صورة/فيديو/ملف/صوت) ─────────��────────────
         if ((reply.replyType === "image" || reply.replyType === "video" ||
-             reply.replyType === "document" || reply.replyType === "audio") &&
+             reply.replyType === "document" || reply.replyType === "audio" || reply.replyType === "sticker") &&
             (reply.replyContent || "").startsWith("local:")) {
           const localPath = reply.replyContent.slice(6); // بعد "local:"
           try {
@@ -294048,8 +294048,10 @@ function registerMessageHandler(sock, userId) {
             } else if (reply.replyType === "video") {
               await sock.sendMessage(jid, { video: fileBuf, caption: "" });
             } else if (reply.replyType === "document") {
-              const fn = localPath.split("/").pop() || "file";
+              const fn = reply._fileName || localPath.split("/").pop() || "file";
               await sock.sendMessage(jid, { document: fileBuf, fileName: fn, mimetype: "application/octet-stream" });
+            } else if (reply.replyType === "sticker") {
+              await sock.sendMessage(jid, { sticker: fileBuf });
             } else if (reply.replyType === "audio") {
               const audioMime = reply._audioMime || "audio/mpeg";
               await sock.sendMessage(jid, { audio: fileBuf, mimetype: audioMime });
@@ -331184,7 +331186,8 @@ app.all("/tool/:code/*splat", (req, res) => {
 // بدون أي خدمة خارجية: تعمل تلقائياً على أي استضافة
 try {
   const { registerWebApp } = await import("./webapp.mjs");
-  registerWebApp(app);
+  const { createAutoReplyWebService } = await import("./auto-reply-web.mjs");
+  registerWebApp(app, { replyService: createAutoReplyWebService({getUserReplies,inMemoryDB,persistReplies,getReplyStat,getUserNumbers,updateNumber}) });
   // [SESSION-RESOLVER] ربط قسم التحويلات بمخزن جلسات البوت الرئيسي —
   // نفس الطريقة التي تجلب بها بقية أقسام البوت المجموعات (مفاتيح userId و userId_+رقم)
   const { setForwardSessionResolver, setForwardGroupsProvider } = await import("./forward.mjs");
