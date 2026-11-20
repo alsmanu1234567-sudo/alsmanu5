@@ -4,44 +4,15 @@
 
 ---
 
-## 1. حالة الاختبار الحالية
+## 1. اختبارات المشروع الحالية
 
-```
-🔴 لا يوجد framework اختبار رسمي
-🔴 لا يوجد CI/CD
-🟡 اختبارات يدوية عبر ملفات test-*.mjs في الجذر
-✅ الاختبار في الإنتاج (بوت حقيقي)
-```
-
----
-
-## 2. ملفات الاختبار اليدوي الموجودة
-
-| الملف | الوظيفة | الحالة |
-|---|---|---|
-| `test-download.mjs` | اختبار تنزيل وسائط عام | يدوي |
-| `test-download-all.mjs` | اختبار كل مصادر التنزيل | يدوي |
-| `test-media.mjs` | اختبار معالجة الوسائط | يدوي |
-| `test-stream-dl.mjs` | اختبار البث المباشر | يدوي |
-| `test-tiktok-new.mjs` | اختبار تنزيل TikTok | يدوي |
-| `test-translate.mjs` | اختبار الترجمة | يدوي |
-| `test-yt-new.mjs` | اختبار تنزيل YouTube | يدوي |
-
-**ملاحظة:** هذه الملفات تنتهك PROJECT_RULES.md (Q1.1 — لا `test-*` في الجذر).
-يجب نقلها إلى `tests/` عند بناء framework رسمي.
-
----
-
-## 3. طريقة الاختبار الحالية
+توجد اختبارات آلية باستخدام `node:test` في `tests/unit/` و`tests/integration/` وغيرها. تُشغَّل اختبارات محددة مثلاً:
 
 ```bash
-# تشغيل اختبار يدوي
-node test-download.mjs
-node test-translate.mjs
-
-# مراجعة السجلات
-# (pino logger — structured JSON logs)
+node --test tests/unit/auto-reply-web.test.mjs tests/unit/auto-reply-interactive.test.mjs tests/unit/auto-reply-xo.test.mjs tests/unit/xo-ultra.test.mjs tests/unit/group-world-handler.test.mjs
 ```
+
+أزيلت سكربتات الاختبار اليدوي القديمة من جذر المشروع أثناء التنظيف؛ بعض اختبارات التكامل أو الوسائط تتطلب اتصالاً أو تبعيات أو إعدادات فعلية. لا تُشغّل اختبارات الجلسات على بيانات إنتاج دون نسخة احتياطية.
 
 ---
 
