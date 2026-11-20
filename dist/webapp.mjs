@@ -36,6 +36,7 @@ import {
   previewWebGroupAutoPost,
   publishWebGroupAutoPostNow,
 } from "./handlers/groups-handler.mjs";
+import { getSharedState, joinShared, moveShared } from "../services/xo-shared.mjs";
 import { getMultiState, moveMulti, acceptMulti } from "../services/xo-multiplayer.mjs";
 import { registerGroupWorldWebApp } from "./group-world-web.mjs";
 
@@ -81,6 +82,12 @@ export function registerWebApp(app, { replyService } = {}) {
     const navigation = '<a class="btn btn-s btn-sm" style="margin-top:10px;text-decoration:none" href="/group-world" onclick="location.href=\'/group-world\'+location.search;return false">🌍 عالم المجموعات</a>';
     res.end(HTML_PAGE.replace('<div class="hdr">', `<div class="hdr">\n  ${navigation}`));
   });
+
+  app.get("/xo-shared", (_req, res) => { res.setHeader("Content-Type", "text/html; charset=utf-8"); res.setHeader("Cache-Control", "no-store"); res.setHeader("Referrer-Policy", "no-referrer"); res.end(readFileSync(fileURLToPath(new URL("../public/xo-shared.html", import.meta.url)))); });
+  const sharedGuard = fn => async(req,res) => { res.setHeader("Cache-Control","no-store"); try {res.json(await fn(req.headers["x-xo-game"],req.headers["x-xo-seat"],req));}catch(e){res.status(400).json({error:e?.message||"تعذر تنفيذ الحركة"});} };
+  app.get("/api/xo-shared/state",sharedGuard(async(id,seat)=>getSharedState(id,seat)));
+  app.post("/api/xo-shared/join",parseJson,sharedGuard(async(id,seat)=>joinShared(id,seat)));
+  app.post("/api/xo-shared/move",parseJson,sharedGuard(async(id,seat,req)=>moveShared(id,seat,req.body?.position)));
 
   app.get("/xo-multi", (_req, res) => { res.setHeader("Content-Type", "text/html; charset=utf-8"); res.setHeader("Cache-Control", "no-store"); res.setHeader("Referrer-Policy", "no-referrer"); res.end(readFileSync(fileURLToPath(new URL("../public/xo-multi.html", import.meta.url)))); });
   const xoGuard = fn => async (req,res) => { res.setHeader("Cache-Control","no-store"); try { res.json(await fn(req.headers["x-xo-token"],req)); } catch (e) {res.status(400).json({error:e?.message||"تعذر تنفيذ الحركة"});} };

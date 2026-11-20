@@ -482,7 +482,7 @@ const HELP_SECTIONS = {
   },
   games: {
     title: "أوامر الألعاب",
-    text: "• .الألعاب — قائمة الألعاب\n• .اكس_او @الخصم — مباراة X و O\n• .تحدي @الخصم — تحدٍ آلي بين عضوين\n• .زعيم — حالة زعيم المجموعة\n• .صيد الكلمات — بدء صيد كلمة",
+    text: "• .الألعاب — قائمة الألعاب\n• .اكس_او — مباراة X و O للاعبين\n• .تحدي @الخصم — تحدٍ آلي بين عضوين\n• .زعيم — حالة زعيم المجموعة\n• .صيد الكلمات — بدء صيد كلمة",
   },
   challenges: {
     title: "أوامر التحديات",
@@ -554,7 +554,7 @@ async function handleGroupWorldInteraction(userId, sock, groupId, memberId, inte
   if (interactionId.startsWith("gw:games:")) {
     const action = interactionId.slice("gw:games:".length);
     const instructions = {
-      xo: "لبدء مباراة: .اكس_او @الخصم",
+      xo: "لبدء مباراة لاعبين: .اكس_او",
       challenges: "لبدء تحدٍ: .تحدي @الخصم — ثم يقبل الخصم باسم التحدي",
       boss: "عرض حالة الزعيم: .زعيم · المساهمة في الهجوم: .زعيم هجوم",
       treasure: "بدء البحث عن الكنز أو عرض التلميح: .كنز · أرسل الحل: .حل <الإجابة>",
@@ -624,25 +624,8 @@ async function commandReply(sock, groupId, memberId, message, text, isBotOwner =
       if (xoAction === "الغاء" || xoAction === "إلغاء") return sendXoBoard(sock, groupId, await groupWorldService.cancelTicTacToe(groupId, game.id, memberId));
       return sendXoBoard(sock, groupId, await groupWorldService.moveTicTacToe(groupId, game.id, memberId, Number(xoAction)-1));
     }
-    if (!mentioned.length) return sendText(sock, groupId, "مباراة بين عضوين: .اكس_او @الخصم\nلعبة نافذة ضد الجهاز: .اكس_او نافذة\nاستعادة لوحتك: .اكس_او لوحة");
-    const metadata = await sock.groupMetadata(groupId);
-    const opponent = (metadata.participants || []).find((item) =>
-      [item.id, item.jid, item.pn, item.lid].some((value) => sameMember(value, mentioned[0]))
-    );
-    if (!opponent) return sendText(sock, groupId, "يجب أن يكون الخصم عضوًا حاليًا في المجموعة.");
-    const opponentId = opponent.id || opponent.jid || opponent.pn || opponent.lid;
-    const { startMultiplayer } = await import("../../services/xo-multiplayer.mjs");
-    return startMultiplayer({sock,chatId:groupId,ownerId,playerId:memberId,playerName:profile.name||name,opponentId,opponentName:opponent.notify||opponent.name||"الخصم",hooks:{
-      start:async()=>{
-        const state=await groupWorldService.getGroup(groupId);
-        const old=(state.games||[]).find(g=>g.kind==="xo" && g.status==="active" && [g.xPlayer,g.oPlayer].includes(memberId) && [g.xPlayer,g.oPlayer].includes(opponentId));
-        const inTournament=old && (state.tournaments||[]).some(t=>t.status==="in_progress" && (t.rounds||[]).flat().some(m=>m.gameId===old.id && m.status==="active"));
-        if(inTournament) throw Error("لديكما مباراة بطولة نشطة؛ أكملها أولاً.");
-        if(old) await groupWorldService.cancelTicTacToe(groupId,old.id,memberId);
-        return groupWorldService.startTicTacToe(groupId,memberId,opponentId,{x:profile.name||name,o:opponent.notify||opponent.name||""});
-      },
-      move:(game,actor,pos)=>groupWorldService.moveTicTacToe(groupId,game.id,actor,pos),
-    }});
+    const {createSharedGame}=await import("../../services/xo-shared.mjs");
+    return createSharedGame({sock,chatId:groupId});
   }
 
   if (commandToken === ".نقاطي") {

@@ -293906,11 +293906,6 @@ function registerMessageHandler(sock, userId) {
         let matched = false;
         const trigger = reply.caseSensitive ? reply.trigger : reply.trigger.toLowerCase();
         let matchText = text;
-        if (reply.replyType === "xo_multi") {
-          const { mentionedJids } = await import("../services/xo-multiplayer.mjs");
-          if (mentionedJids(msg).length) matchText=matchText.replace(/@\d+/g, "");
-          matchText=matchText.trim().replace(/\s+/g," ");
-        }
         const msgText = reply.caseSensitive ? matchText : matchText.toLowerCase();
         switch (reply.triggerType) {
           case "exact":
@@ -293983,14 +293978,8 @@ function registerMessageHandler(sock, userId) {
           break;
         }
         if (reply.replyType === "xo_multi") {
-          try {
-            if (!isGroup) throw Error("اللعبة لشخصين متاحة في المجموعة فقط؛ أرسل المفتاح مع منشن الخصم.");
-            const {startMultiplayer,canonicalGroupPlayer,mentionedJids}=await import("../services/xo-multiplayer.mjs");
-            const mention=mentionedJids(msg)[0]; if (!mention) throw Error("أرسل مفتاح اللعبة مع منشن الخصم.");
-            const own=msg.key?.fromMe ? [sock.user?.lid,sock.user?.id,sock.user?.jid,sock.user?.pn,msg.key?.participant] : [msg.key?.participant,msg.key?.participantAlt];
-            const p=await canonicalGroupPlayer(sock,jid,own), o=await canonicalGroupPlayer(sock,jid,mention);
-            await startMultiplayer({sock,chatId:jid,ownerId:userId,playerId:p.id,playerName:p.name||senderName,opponentId:o.id,opponentName:o.name,fallback:reply.xoFallbackEnabled!==false,fallbackText:reply.xoFallbackText||""});
-          } catch(err) { logger.error({err},"XO multiplayer reply failed"); await sock.sendMessage(jid,{text:err?.message||"تعذر بدء التحدي"}); }
+          try { const {createSharedGame}=await import("../services/xo-shared.mjs"); await createSharedGame({sock,chatId:jid,fallback:reply.xoFallbackEnabled!==false,fallbackText:reply.xoFallbackText||""}); }
+          catch(err) { logger.error({err},"XO shared reply failed"); await sock.sendMessage(jid,{text:err?.message||"تعذر بدء اللعبة"}); }
           break;
         }
         if (reply.replyType === "xo") {

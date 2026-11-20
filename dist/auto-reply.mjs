@@ -1385,7 +1385,7 @@ export async function handleAutoReplyCallback(bot2, chatId, userId, data) {
       "```json\n" + rotEx + "\n```",
       "## 5. مثال رد بالذكاء الاصطناعي",
       "```json\n" + aiEx + "\n```",
-      "ألعاب النافذة: xo_ultra ضد الجهاز، وxo_multi لشخصين مع منشن الخصم داخل مجموعة. يمكن استخدام xoFallbackEnabled وxoFallbackText مع _get مكان الرابط.",
+      "ألعاب النافذة: xo_ultra ضد الجهاز، وxo_multi لشخصين في المجموعة دون منشن. يمكن استخدام xoFallbackEnabled وxoFallbackText مع _get مكان الرابط.",
       "## 6. أنواع الأزرار (replyContent سلسلة JSON)",
       'أنواع الأزرار: button_quick (يرد بالنص عند الضغط)، button_url (رابط)، button_list (قائمة ترد بالنص). في replyContent ضع نص JSON كسلسلة: {"text":"اختر","entries":[{"label":"نعم","value":"تم الاختيار"}]}. في زر الرابط تكون value رابط http أو https. كل عنوان 24 حرفاً كحد أقصى و1–9 خيارات. هدف self لرسائلك أنت. لا تستخدم group؛ استخدم groups.',
       "مثال رد بأزرار صالح للاستيراد:",

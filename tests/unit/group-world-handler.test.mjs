@@ -278,17 +278,14 @@ test('XO resumes the stuck game and text fallback works if button relay fails', 
   assert.equal((await service.getGroup(GROUP)).games.find(g=>g.id===games[0].id).status,'cancelled');
 });
 
-test('group command starts web invitation, waits for opponent, then awards via world service', async t=>{
+test('group XO command sends a shared game to the group without private messages', async t=>{
   const {service,sock,sent}=await setup(t);const old=process.env.WEBAPP_URL;process.env.WEBAPP_URL='https://example.test';t.after(()=>{if(old===undefined)delete process.env.WEBAPP_URL;else process.env.WEBAPP_URL=old});
-  const start={key:{id:'new-multi-command',remoteJid:GROUP,fromMe:true,participant:OWNER_LID,participantAlt:OWNER_PHONE},message:{extendedTextMessage:{text:'.اكس_او @249000000002',contextInfo:{mentionedJid:[MEMBER]}}},pushName:'Owner'};
-  await handleGroupWorldMessage('web-owner',sock,start,'notify');
-  const messages=sent.filter(x=>x.rawInteractive);const invitation=messages.map(x=>x.rawInteractive.viewOnceMessage.message.interactiveMessage).find(x=>x.nativeFlowMessage.buttons.some(b=>JSON.parse(b.buttonParamsJson).id?.startsWith('mxo:')));assert(invitation);
-  const joinId=invitation.nativeFlowMessage.buttons.map(b=>JSON.parse(b.buttonParamsJson).id).find(x=>x?.endsWith(':join'));
+  const destinations=[];const relay=sock.relayMessage,send=sock.sendMessage;
+  sock.relayMessage=async(j,...args)=>{destinations.push(j);return relay(j,...args)};
+  sock.sendMessage=async(j,...args)=>{destinations.push(j);return send(j,...args)};
+  await handleGroupWorldMessage('web-owner',sock,message('shared-xo','.اكس_او'),'notify');
+  assert(destinations.length>=2);assert(destinations.every(j=>j===GROUP));
+  const rich=sent.find(x=>x.rawInteractive)?.rawInteractive;assert(rich?.botForwardedMessage);
+  assert.match(sent.find(x=>x.text)?.text,/\/xo-shared#/);
   assert.equal((await service.getGroup(GROUP)).games.filter(g=>g.status==='active').length,0);
-  const {handleMultiInteraction,getMultiState,moveMulti}=await import('../../services/xo-multiplayer.mjs');
-  const first=sent.find(x=>x.text?.includes('/xo-multi#')).text.split('/xo-multi#')[1];assert.equal(getMultiState(first).status,'waiting');
-  await handleMultiInteraction({sock,chatId:GROUP,ownerId:'web-owner',playerId:MEMBER,interactionId:joinId});
-  const second=sent.filter(x=>x.text?.includes('/xo-multi#')).at(-1).text.split('/xo-multi#')[1];assert.equal(getMultiState(first).status,'active');
-  await moveMulti(first,0);await moveMulti(second,3);await moveMulti(first,1);await moveMulti(second,4);await moveMulti(first,2);
-  assert.equal((await service.getMemberProfile(GROUP,OWNER_LID)).gameStats.xo.wins,1);
 });
