@@ -591,7 +591,7 @@ async function handleGroupWorldInteraction(userId, sock, groupId, memberId, inte
   return null;
 }
 
-async function commandReply(sock, groupId, memberId, message, text, isBotOwner = false) {
+async function commandReply(sock, groupId, memberId, message, text, isBotOwner = false, ownerId = "") {
   const commandToken = text.trim().split(/\s+/)[0];
   const args = text.trim().slice(commandToken.length).trim();
   const name = message?.pushName || "";
@@ -631,14 +631,18 @@ async function commandReply(sock, groupId, memberId, message, text, isBotOwner =
     );
     if (!opponent) return sendText(sock, groupId, "يجب أن يكون الخصم عضوًا حاليًا في المجموعة.");
     const opponentId = opponent.id || opponent.jid || opponent.pn || opponent.lid;
-    const world = await groupWorldService.getGroup(groupId);
-    const existing = (world.games || []).find(g => g.kind === "xo" && g.status === "active" && [g.xPlayer,g.oPlayer].some(id=>sameMember(id,memberId)) && [g.xPlayer,g.oPlayer].some(id=>sameMember(id,opponentId)));
-    if (existing) return sendXoBoard(sock, groupId, existing);
-    const game = await groupWorldService.startTicTacToe(groupId, memberId, opponentId, {
-      x: profile.name || name,
-      o: opponent.notify || opponent.name || "",
-    });
-    return sendXoBoard(sock, groupId, game);
+    const { startMultiplayer } = await import("../../services/xo-multiplayer.mjs");
+    return startMultiplayer({sock,chatId:groupId,ownerId,playerId:memberId,playerName:profile.name||name,opponentId,opponentName:opponent.notify||opponent.name||"الخصم",hooks:{
+      start:async()=>{
+        const state=await groupWorldService.getGroup(groupId);
+        const old=(state.games||[]).find(g=>g.kind==="xo" && g.status==="active" && [g.xPlayer,g.oPlayer].includes(memberId) && [g.xPlayer,g.oPlayer].includes(opponentId));
+        const inTournament=old && (state.tournaments||[]).some(t=>t.status==="in_progress" && (t.rounds||[]).flat().some(m=>m.gameId===old.id && m.status==="active"));
+        if(inTournament) throw Error("لديكما مباراة بطولة نشطة؛ أكملها أولاً.");
+        if(old) await groupWorldService.cancelTicTacToe(groupId,old.id,memberId);
+        return groupWorldService.startTicTacToe(groupId,memberId,opponentId,{x:profile.name||name,o:opponent.notify||opponent.name||""});
+      },
+      move:(game,actor,pos)=>groupWorldService.moveTicTacToe(groupId,game.id,actor,pos),
+    }});
   }
 
   if (commandToken === ".نقاطي") {
@@ -1211,7 +1215,7 @@ export async function handleGroupWorldMessage(userId, sock, message, eventType =
         return sendText(sock, groupId, `الأمر ${commandToken} متوقف لهذه المجموعة.`);
       }
       const botOwner = fromMe && await isGroupWorldOwner(groupId, userId, sock);
-      return await commandReply(sock, groupId, memberId, message, text, botOwner);
+      return await commandReply(sock, groupId, memberId, message, text, botOwner, String(userId));
     }
     const result = await groupWorldService.processMessage({
       groupId,

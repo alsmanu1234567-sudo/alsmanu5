@@ -115,10 +115,17 @@ async function handleReplyTypeCallbackInternal(bot2, chatId, userId, data) {
     await bot2.sendMessage(chatId, `🔘 إعداد الأزرار\n\nأرسل نص الرسالة في السطر الأول، ثم كل خيار في سطر بالشكل:\n${details}\n\nمثال:\nأهلاً بك، اختر خياراً:\nالخيار الأول|${replyType === 'button_url' ? 'https://example.com' : 'هذا هو الرد الأول'}\n\nمن 1 إلى 9 خيارات.`);
     return;
   }
-  if (data === "rtype_xo_ultra") {
-    const state = getState(userId);
-    setState(userId, "awaiting_reply_target", { ...state.data, replyType:"xo_ultra", replyContent:"__xo_ultra__" });
-    await bot2.sendMessage(chatId, "🎮 XO ULTRA ضد الجهاز. اختر هدف الرد:", {reply_markup:replyTargetKeyboard()});
+  if (data === "rtype_xo_ultra" || data === "rtype_xo_multi") {
+    const replyType = data === "rtype_xo_multi" ? "xo_multi" : "xo_ultra";
+    setState(userId, "awaiting_xo_fallback_choice", {replyType, replyContent:replyType === "xo_multi" ? "__xo_multi__" : "__xo_ultra__"});
+    await bot2.sendMessage(chatId, "🎮 إعداد رسالة الرابط البديل. اختر الافتراضية أو أوقفها أو اكتب رسالة خاصة؛ _get يوضع مكان الرابط.", {reply_markup:{inline_keyboard:[[{text:"✅ الافتراضية",callback_data:"rtype_xosetting_default"},{text:"🚫 إيقاف الرسالة",callback_data:"rtype_xosetting_off"}],[{text:"✍️ رسالة خاصة",callback_data:"rtype_xosetting_custom"}]]}});
+    return;
+  }
+  if (["rtype_xosetting_default","rtype_xosetting_off","rtype_xosetting_custom"].includes(data)) {
+    if(getState(userId)?.state !== "awaiting_xo_fallback_choice") return;
+    if(data === "rtype_xosetting_custom") { setState(userId,"awaiting_xo_fallback_text",{}); await bot2.sendMessage(chatId,"أرسل رسالة الرابط وضع _get في مكان الرابط."); return; }
+    setState(userId,"awaiting_reply_target",{xoFallbackEnabled:data !== "rtype_xosetting_off",xoFallbackText:""});
+    await bot2.sendMessage(chatId,"اختر هدف الرد:",{reply_markup:replyTargetKeyboard()});
     return;
   }
 
@@ -239,7 +246,8 @@ async function handleScopeCallbackInternal(bot2, chatId, userId, data) {
     replyContent: replyContent || getMergedText(userId) || "",
     target: target || "all",
     targetNumbers: targetNumbers || [],
-    scope
+    scope,
+    ...(["xo_ultra","xo_multi"].includes(replyType) ? {xoFallbackEnabled:state.data.xoFallbackEnabled !== false,xoFallbackText:state.data.xoFallbackText||""} : {})
   };
   clearTextParts(userId);
   saveAutoReply(userId, newReply);
@@ -1372,11 +1380,12 @@ export async function handleAutoReplyCallback(bot2, chatId, userId, data) {
       "## 2. هيكل ملف الرد (JSON)",
       "```json\n" + sampleJson + "\n```",
       "## 3. شرح الحقول",
-      "- **trigger**: الكلمة المفتاحية\n- **triggerType**: [exact | contains | starts | ends | regex]\n- **replyType**: [text | ai | reaction | morphing | rotating | image | audio | video | document | sticker | xo | xo_ultra | button_quick | button_url | button_list]\n- **replyContent**: نص أو URL أو \"__ai_default__\" للذكاء\n- **target**: [all | specific | multiple | self] | **scope**: [both | private | groups]\n- **dailyLimit**: حد يومي (0 = بلا حد) | **perUserLimit**: حد لكل شخص كل 8ساعات",
+      "- **trigger**: الكلمة المفتاحية\n- **triggerType**: [exact | contains | starts | ends | regex]\n- **replyType**: [text | ai | reaction | morphing | rotating | image | audio | video | document | sticker | xo | xo_ultra | xo_multi | button_quick | button_url | button_list]\n- **replyContent**: نص أو URL أو \"__ai_default__\" للذكاء\n- **target**: [all | specific | multiple | self] | **scope**: [both | private | groups]\n- **dailyLimit**: حد يومي (0 = بلا حد) | **perUserLimit**: حد لكل شخص كل 8ساعات",
       "## 4. مثال رد دوري",
       "```json\n" + rotEx + "\n```",
       "## 5. مثال رد بالذكاء الاصطناعي",
       "```json\n" + aiEx + "\n```",
+      "ألعاب النافذة: xo_ultra ضد الجهاز، وxo_multi لشخصين مع منشن الخصم داخل مجموعة. يمكن استخدام xoFallbackEnabled وxoFallbackText مع _get مكان الرابط.",
       "## 6. أنواع الأزرار (replyContent سلسلة JSON)",
       'أنواع الأزرار: button_quick (يرد بالنص عند الضغط)، button_url (رابط)، button_list (قائمة ترد بالنص). في replyContent ضع نص JSON كسلسلة: {"text":"اختر","entries":[{"label":"نعم","value":"تم الاختيار"}]}. في زر الرابط تكون value رابط http أو https. كل عنوان 24 حرفاً كحد أقصى و1–9 خيارات. هدف self لرسائلك أنت. لا تستخدم group؛ استخدم groups.',
       "مثال رد بأزرار صالح للاستيراد:",
@@ -1629,6 +1638,12 @@ export async function handleAutoReplyTextInput(bot2, chatId, userId, text, state
   const user = getUser(userId);
   const isDev2 = userId === DEVELOPER_ID;
 
+  if (state.state === "awaiting_xo_fallback_text") {
+    if (text.length > 2000) { await bot2.sendMessage(chatId,"النص طويل جداً؛ الحد 2000 حرف."); return true; }
+    setState(userId,"awaiting_reply_target",{xoFallbackEnabled:true,xoFallbackText:text});
+    await bot2.sendMessage(chatId,"✅ تم حفظ نص الرابط. اختر هدف الرد:",{reply_markup:_deps.replyTargetKeyboard()});
+    return true;
+  }
   if (state.state === "awaiting_trigger") {
     setState(userId, "awaiting_trigger_type", { trigger: text });
     await bot2.sendMessage(

@@ -3,7 +3,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { validateInteractiveConfig } from '../services/auto-reply-interactive.mjs';
 
-const TYPES = new Set(['text','ai','reaction','rotating','morphing','xo','xo_ultra','button_quick','button_list','button_url','image','video','audio','document','sticker']);
+const TYPES = new Set(['text','ai','reaction','rotating','morphing','xo','xo_ultra','xo_multi','button_quick','button_list','button_url','image','video','audio','document','sticker']);
 const MEDIA = new Set(['image','video','audio','document','sticker']);
 const STR = (v,max,name) => { const s=String(v ?? '').trim(); if(s.length>max) throw Error(`${name} طويل جداً`); return s; };
 const integer = (v,name) => { const n=Number(v || 0); if(!Number.isInteger(n)||n<0||n>100000) throw Error(`${name} غير صالح`);return n; };
@@ -30,6 +30,7 @@ export function validateWebReply(uid, input, existing = {}) {
   if(replyType==='ai' && !replyContent) replyContent='__ai_default__';
   if(replyType==='xo') replyContent='__xo_game__';
   if(replyType==='xo_ultra') replyContent='__xo_ultra__';
+  if(replyType==='xo_multi') replyContent='__xo_multi__';
   if(MEDIA.has(replyType) && !(existing.replyType===replyType && existing.replyContent===replyContent)) localMedia(uid,replyContent);
   if(['text','reaction','morphing'].includes(replyType) && !replyContent) throw Error('أدخل محتوى الرد');
   if(replyType==='rotating') {
@@ -48,6 +49,7 @@ export function validateWebReply(uid, input, existing = {}) {
   return {...existing,trigger,triggerType,caseSensitive:input.caseSensitive===true,replyType,replyContent,target,targetNumbers,scope,
     isActive: input.isActive !== false, dailyLimit:integer(input.dailyLimit,'الحد اليومي'),perUserLimit:integer(input.perUserLimit,'حد الشخص'),
     scheduleFrom:scheduleFrom||null,scheduleTo:scheduleTo||null,langFilter:langFilter||null,rotatingMessages,morphEdits,
+    ...(["xo_ultra","xo_multi"].includes(replyType) ? {xoFallbackEnabled:input.xoFallbackEnabled !== false, xoFallbackText:STR(input.xoFallbackText||"",2000,"رسالة الرابط")} : {}),
     ...(MEDIA.has(replyType) ? {_audioMime: STR(input._audioMime || existing._audioMime || '',120,'نوع الملف'), _fileName: STR(input._fileName || existing._fileName || '',160,'اسم الملف')} : {})};
 }
 export function createAutoReplyWebService({getUserReplies,inMemoryDB,persistReplies,getReplyStat,getUserNumbers,updateNumber}) {

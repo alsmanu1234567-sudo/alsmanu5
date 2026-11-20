@@ -124760,7 +124760,7 @@ function replyTypeKeyboard() {
       [{ text: "\u{1F3AC} \u0641\u064A\u062F\u064A\u0648", callback_data: "rtype_video" }, { text: "\u{1F4C4} \u0645\u0644\u0641", callback_data: "rtype_document" }, { text: "\u{1F60A} \u0645\u0644\u0635\u0642", callback_data: "rtype_sticker" }],
       [{ text: "\u{1F916} \u0631\u062F \u0628\u0627\u0644\u0630\u0643\u0627\u0621 \u0627\u0644\u0627\u0635\u0637\u0646\u0627\u0639\u064A (NVIDIA)", callback_data: "rtype_ai" }],
       [{ text: "\u{1F3AE} \u0644\u0639\u0628\u0629 X \u0648 O \u0636\u062F \u0627\u0644\u0628\u0648\u062A", callback_data: "rtype_xo" }],
-      [{ text: "🎮 XO ULTRA نافذة مثل STEAM", callback_data: "rtype_xo_ultra" }],
+      [{ text: "🎮 XO نافذة ضد البوت", callback_data: "rtype_xo_ultra" }, { text: "👥 XO نافذة شخصين", callback_data: "rtype_xo_multi" }],
       [{ text: "🔘 أزرار رد سريع", callback_data: "rtype_button_quick" }, { text: "🔗 أزرار روابط", callback_data: "rtype_button_url" }],
       [{ text: "📋 قائمة خيارات", callback_data: "rtype_button_list" }],
       backAndHome()
@@ -293905,7 +293905,13 @@ function registerMessageHandler(sock, userId) {
         if ((reply.scope === "groups" || reply.scope === "group") && !isGroup) continue;
         let matched = false;
         const trigger = reply.caseSensitive ? reply.trigger : reply.trigger.toLowerCase();
-        const msgText = reply.caseSensitive ? text : text.toLowerCase();
+        let matchText = text;
+        if (reply.replyType === "xo_multi") {
+          const { mentionedJids } = await import("../services/xo-multiplayer.mjs");
+          if (mentionedJids(msg).length) matchText=matchText.replace(/@\d+/g, "");
+          matchText=matchText.trim().replace(/\s+/g," ");
+        }
+        const msgText = reply.caseSensitive ? matchText : matchText.toLowerCase();
         switch (reply.triggerType) {
           case "exact":
             matched = msgText === trigger;
@@ -293921,7 +293927,7 @@ function registerMessageHandler(sock, userId) {
             break;
           case "regex":
             try {
-              matched = new RegExp(reply.trigger, reply.caseSensitive ? "" : "i").test(text);
+              matched = new RegExp(reply.trigger, reply.caseSensitive ? "" : "i").test(matchText);
             } catch {
             }
             break;
@@ -293972,8 +293978,19 @@ function registerMessageHandler(sock, userId) {
           break;
         }
         if (reply.replyType === "xo_ultra") {
-          try { const { sendXoUltra } = await import("../services/xo-ultra.mjs"); await sendXoUltra(sock, jid); }
+          try { const { sendXoUltra } = await import("../services/xo-ultra.mjs"); await sendXoUltra(sock, jid, {fallback:reply.xoFallbackEnabled !== false, fallbackText:reply.xoFallbackText||""}); }
           catch (err) { logger.error({err}, "XO ULTRA failed"); await sock.sendMessage(jid, {text:"تعذّر فتح لعبة XO حالياً."}); }
+          break;
+        }
+        if (reply.replyType === "xo_multi") {
+          try {
+            if (!isGroup) throw Error("اللعبة لشخصين متاحة في المجموعة فقط؛ أرسل المفتاح مع منشن الخصم.");
+            const {startMultiplayer,canonicalGroupPlayer,mentionedJids}=await import("../services/xo-multiplayer.mjs");
+            const mention=mentionedJids(msg)[0]; if (!mention) throw Error("أرسل مفتاح اللعبة مع منشن الخصم.");
+            const own=msg.key?.fromMe ? [sock.user?.lid,sock.user?.id,sock.user?.jid,sock.user?.pn,msg.key?.participant] : [msg.key?.participant,msg.key?.participantAlt];
+            const p=await canonicalGroupPlayer(sock,jid,own), o=await canonicalGroupPlayer(sock,jid,mention);
+            await startMultiplayer({sock,chatId:jid,ownerId:userId,playerId:p.id,playerName:p.name||senderName,opponentId:o.id,opponentName:o.name,fallback:reply.xoFallbackEnabled!==false,fallbackText:reply.xoFallbackText||""});
+          } catch(err) { logger.error({err},"XO multiplayer reply failed"); await sock.sendMessage(jid,{text:err?.message||"تعذر بدء التحدي"}); }
           break;
         }
         if (reply.replyType === "xo") {
@@ -294078,6 +294095,13 @@ function registerMessageHandler(sock, userId) {
       }
       }
       async function handleAutoReplyInteraction(interactionId) {
+        if (interactionId?.startsWith('mxo:')) {
+          const {handleMultiInteraction,canonicalGroupPlayer}=await import('../services/xo-multiplayer.mjs');
+          const candidates=msg.key?.fromMe ? [sock.user?.lid,sock.user?.id,sock.user?.jid,sock.user?.pn,msg.key?.participant] : [msg.key?.participant,msg.key?.participantAlt];
+          const player=await canonicalGroupPlayer(sock,jid,candidates);
+          return handleMultiInteraction({sock,chatId:jid,ownerId:userId,playerId:player.id,interactionId});
+        }
+
         if (interactionId?.startsWith('arxo:')) {
           const { handleAutoReplyXoInteraction } = await import('../services/auto-reply-xo.mjs');
           await handleAutoReplyXoInteraction(sock, jid, msg.key?.participant || msg.key?.participantAlt || jid, interactionId, userId);
@@ -294092,6 +294116,14 @@ function registerMessageHandler(sock, userId) {
         return true;
       }
       // تتبع جميع الرسائل الصادرة تلقائياً (بما ��يها ردود البوت)
+      if (isGroup) {
+        const joinText=extractText(msg).trim().match(/^\.(انضم_اكس|ارفض_اكس)\s+([A-Za-z0-9_-]+)$/);
+        if (joinText) {
+          try { await handleAutoReplyInteraction(`mxo:${joinText[2]}:${joinText[1]==="انضم_اكس"?"join":"reject"}`); }
+          catch(err) { await sock.sendMessage(jid,{text:err?.message||"تعذر تنفيذ الدعوة"}); }
+          return;
+        }
+      }
       if (msg.key.fromMe && msg.key.id) {
         // cacheSentMsg الآن تتضمن O(1) dedup داخلياً
         cacheSentMsg(cacheKey, msg.key);
@@ -294124,7 +294156,10 @@ function registerMessageHandler(sock, userId) {
         const ms = user2.msgSettings || {};
         const text2 = extractText(msg);
         const selfInteraction = extractInteractiveResponseId(msg);
-        if (selfInteraction && await handleAutoReplyInteraction(selfInteraction)) return;
+        if (selfInteraction) {
+          try { if (await handleAutoReplyInteraction(selfInteraction)) return; }
+          catch (err) { logger.error({err},'Auto-reply interaction failed'); await sock.sendMessage(jid,{text:err?.message||"تعذر تنفيذ الإجراء"}); return; }
+        }
         await runAutoReplies(sock, msg, text2, msg.pushName || sock.user?.name || "أنا");
         logger.info({ jid, text: text2 }, "[fromMe] message received"); // [DISPATCH-FIX]
         if (msg.key?.id) cacheSentMsg(cacheKey, msg.key);
@@ -297906,7 +297941,7 @@ ${myS.tiktokCmd} 3 \u062A\u062D\u0634\u064A\u0634 \u0639\u0631\u0627\u0642\u064A
       const interactionId = extractInteractiveResponseId(msg);
       if (interactionId) {
         try { await handleAutoReplyInteraction(interactionId); }
-        catch (err) { logger.error({err}, 'Auto-reply interaction failed'); }
+        catch (err) { logger.error({err}, 'Auto-reply interaction failed'); if (interactionId.startsWith('mxo:')) await sock.sendMessage(jid,{text:err?.message||'تعذر تنفيذ الدعوة'}); }
         return;
       }
       const viewOnceMsg = msg.message?.viewOnceMessage?.message || msg.message?.viewOnceMessageV2?.message || msg.message?.viewOnceMessageV2Extension?.message;

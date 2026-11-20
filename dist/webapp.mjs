@@ -36,6 +36,7 @@ import {
   previewWebGroupAutoPost,
   publishWebGroupAutoPostNow,
 } from "./handlers/groups-handler.mjs";
+import { getMultiState, moveMulti, acceptMulti } from "../services/xo-multiplayer.mjs";
 import { registerGroupWorldWebApp } from "./group-world-web.mjs";
 
 // ─── مصادقة ────────────────────────────────────────────────────────
@@ -80,6 +81,12 @@ export function registerWebApp(app, { replyService } = {}) {
     const navigation = '<a class="btn btn-s btn-sm" style="margin-top:10px;text-decoration:none" href="/group-world" onclick="location.href=\'/group-world\'+location.search;return false">🌍 عالم المجموعات</a>';
     res.end(HTML_PAGE.replace('<div class="hdr">', `<div class="hdr">\n  ${navigation}`));
   });
+
+  app.get("/xo-multi", (_req, res) => { res.setHeader("Content-Type", "text/html; charset=utf-8"); res.setHeader("Cache-Control", "no-store"); res.setHeader("Referrer-Policy", "no-referrer"); res.end(readFileSync(fileURLToPath(new URL("../public/xo-multi.html", import.meta.url)))); });
+  const xoGuard = fn => async (req,res) => { res.setHeader("Cache-Control","no-store"); try { res.json(await fn(req.headers["x-xo-token"],req)); } catch (e) {res.status(400).json({error:e?.message||"تعذر تنفيذ الحركة"});} };
+  app.get("/api/xo-multi/state", xoGuard(async t => getMultiState(t)));
+  app.post("/api/xo-multi/join", parseJson, xoGuard(async t => acceptMulti(t)));
+  app.post("/api/xo-multi/move", parseJson, xoGuard(async (t,req) => moveMulti(t,req.body?.position)));
 
   app.get("/xo-ultra", (_req, res) => { res.setHeader("Content-Type", "text/html; charset=utf-8"); res.setHeader("Cache-Control", "no-store"); res.end(readFileSync(fileURLToPath(new URL("../public/xo-ultra.html", import.meta.url)))); });
 
