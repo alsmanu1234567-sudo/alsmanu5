@@ -295282,7 +295282,9 @@ ${fullText}${warnSuffix}` }, { quoted: msg });
               urls=await tools.searchSimilarImages(buffer);
             }else if(query){
               await activeSock.sendMessage(jid,{text:`🔍 أبحث عن "${query}" (${count} صورة)...`});
-              urls=await tools.searchImageCandidates(query,{target:Math.min(80,Math.max(30,count*4))});
+              const result=await tools.searchAndSendTextImages({query,count,sock:activeSock,jid,onBroaden:async(q)=>{await activeSock.sendMessage(jid,{text:`🔎 لم تكفِ النتائج الدقيقة؛ أبحث بصورة أوسع عن «${q}». قد لا تطابق كل تفاصيل طلبك.`})}});
+              if(result.sent<count)await activeSock.sendMessage(jid,{text:`⚠️ تم إرسال ${result.sent} من ${count} صور مطلوبة بعد البحث عن نتائج أوسع؛ لم تتوفر صور صالحة كافية.`});
+              return;
             }else{await activeSock.sendMessage(jid,{text:`⚠️ مثال: ${myS.imgCmd} قطة 5، أو رد على صورة بـ ${myS.imgCmd} 5 للبحث عن صور مشابهة.`});return;}
             const result=await tools.sendImageCandidates({sock:activeSock,jid,urls,count});
             if(result.sent<count)await activeSock.sendMessage(jid,{text:`⚠️ تم إرسال ${result.sent} من ${count} صور مطلوبة؛ تعذّر الحصول على عدد كافٍ من النتائج الصالحة.`});
