@@ -1,5 +1,5 @@
 import { sendInteractiveAutoReply, resolveInteractiveAnswer, formatInteractiveFallback } from '../services/auto-reply-interactive.mjs';
-import { setMessageCutoff } from "../engine/message-cutoff.mjs";
+import { setMessageCutoff, advanceMessageCutoff } from "../engine/message-cutoff.mjs";
 import { isGeneratedAutoReply, protectAutoReplySocket, matchesReplyTarget } from '../services/auto-reply-routing.mjs';
 // PATCH_MASTER_FIX_APPLIED
 // PATCH_FIXES_V3_APPLIED
@@ -124592,7 +124592,7 @@ function connectMenuKeyboard(numbers = [], maxNumbers = 1, cleanHours = 0) {
 }
 // ── جدولة التنظيف التلقائي — Map لتتبع المؤقتات النشطة ──────────────────
 function _discardOldMessages(userId) {
-  const cutoff = setMessageCutoff(userId);
+  const cutoff = advanceMessageCutoff(userId);
   saveUser(userId, { messageCutoffAt: cutoff });
   try { _pipelineTeardown?.(userId); } catch {}
   for (const cache of [msgCache, userSentMsgCache, userSentMsgIdSet]) {
