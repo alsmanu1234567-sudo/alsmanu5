@@ -295255,7 +295255,7 @@ ${fullText}${warnSuffix}` }, { quoted: msg });
           try {
             const tools=await import("../services/image-tools.mjs");
             const image=tools.extractQuotedImage(msg);
-            if(!image){await activeSock.sendMessage(jid,{text:`✂️ رد على صورة عادية بالأمر ${myS.removeBgCmd || "/قص"} أو أرسل صورة مع الأمر في وصفها. الصورة تُرسل لخدمة Pixelcut الخارجية.`});return;}
+            if(!image){await activeSock.sendMessage(jid,{text:`✂️ رد على صورة عادية بالأمر ${myS.removeBgCmd || "/قص"} أو أرسل صورة مع الأمر في وصفها. تُعالج الصورة محلياً بنموذج Kitlibre؛ أول استخدام ينزّل ملفات النموذج.`});return;}
             const len=Number(image.message.imageMessage.fileLength||0);if(len>10*1024*1024)throw Error('الصورة أكبر من 10 ميجابايت');
             await activeSock.sendMessage(jid,{text:'✂️ جارٍ إزالة الخلفية عبر خدمة Pixelcut الخارجية…'});
             const {downloadMediaMessage}=await Promise.resolve().then(()=>(init_lib6(),lib_exports4));
