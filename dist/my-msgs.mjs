@@ -15,6 +15,8 @@ const DEFAULTS = {
   exportMembersCmd: "/gm",
   copyCmd: "/copy",
   imgCmd: "/img",
+  removeBgCmd: "/قص",
+  removeBgEnabled: true,
   vidCmd: "/vid",
   tiktokCmd: "/tiktok",
   songCmd: "/song",
@@ -56,7 +58,8 @@ export const COMMAND_CONTROL_FEATURES = [
   { id: "pic", name: "صورة البروفايل", commandKey: "profilePicCmd", defaultCommand: "/mg", enabledKey: "profilePicEnabled", defaultEnabled: true, help: "أرسل الكود لجلب صورة المحادثة، أو أضف me لتعيينها صورةً لحسابك." },
   { id: "gm", name: "تصدير الأعضاء", commandKey: "exportMembersCmd", defaultCommand: "/gm", enabledKey: "exportMembersEnabled", defaultEnabled: true, help: "أرسل الكود داخل مجموعة لتصدير أرقام أعضائها." },
   { id: "copy", name: "إعادة الإرسال", commandKey: "copyCmd", defaultCommand: "/copy", enabledKey: "copyEnabled", defaultEnabled: true, help: "ردّ على رسالة بالكود لإعادة إرسالها." },
-  { id: "img", name: "بحث الصور", commandKey: "imgCmd", defaultCommand: "/img", enabledKey: "imgEnabled", defaultEnabled: true, help: "أرسل الكود ثم كلمة البحث والعدد." },
+  { id: "img", name: "بحث الصور", commandKey: "imgCmd", defaultCommand: "/img", enabledKey: "imgEnabled", defaultEnabled: true, help: "أرسل الكود ثم الموضوع والعدد، أو ردّ على صورة بالكود والعدد للبحث المشابه. الصورة تُرسل لخدمة Google Lens الخارجية، وقد يتعذر البحث إذا طلبت الخدمة تحققاً." },
+  { id: "removebg", name: "إزالة خلفية الصورة", commandKey: "removeBgCmd", defaultCommand: "/قص", enabledKey: "removeBgEnabled", defaultEnabled: true, help: "ردّ على صورة بالكود أو أرسله في وصفها. تُرسل الصورة لخدمة Pixelcut الخارجية." },
   { id: "vid", name: "تنزيل فيديو يوتيوب", commandKey: "vidCmd", defaultCommand: "/vid", enabledKey: "vidEnabled", defaultEnabled: true, help: "أرسل الكود ثم رابط الفيديو أو عبارة البحث." },
   { id: "linkvid", name: "تنزيل الفيديو من رابط", commandKey: "linkVideoCmd", defaultCommand: "/linkvideo", enabledKey: "linkVideoEnabled", defaultEnabled: true, help: "تُعالج الروابط تلقائياً في المجموعة المخصصة؛ هذا الكود لإدارة تشغيل الميزة فقط." },
   { id: "tiktok", name: "تيك توك", commandKey: "tiktokCmd", defaultCommand: "/tiktok", enabledKey: "tiktokEnabled", defaultEnabled: true, help: "أرسل الكود ثم عبارة البحث والعدد." },
@@ -314,6 +317,7 @@ export function myMsgsMenuKeyboard(s) {
     inline_keyboard: [
       [f(s.profilePicEnabled, "\uD83D\uDCF8 \u0635\u0648\u0631\u0629 \u0627\u0644\u0628\u0631\u0648\u0641\u0627\u064A\u0644", "mymsgs_show_pic"), f(s.exportMembersEnabled, "\uD83D\uDC65 \u062A\u0635\u062F\u064A\u0631 \u0627\u0644\u0623\u0639\u0636\u0627\u0621", "mymsgs_show_gm")],
       [f(s.copyEnabled, "\uD83D\uDD04 \u0625\u0639\u0627\u062F\u0629 \u0627\u0644\u0625\u0631\u0633\u0627\u0644", "mymsgs_show_copy"), f(s.imgEnabled, "\uD83D\uDDBC\uFE0F \u0628\u062D\u062B \u0635\u0648\u0631", "mymsgs_show_img")],
+      [f(s.removeBgEnabled !== false, "✂️ إزالة خلفية الصورة", "mymsgs_show_removebg")],
       [f(s.vidEnabled, "\uD83C\uDFAC \u0641\u064A\u062F\u064A\u0648 \u064A\u0648\u062A\u064A\u0648\u0628", "mymsgs_show_vid"), f(s.tiktokEnabled, "\uD83D\uDCF1 \u062A\u064A\u0643 \u062A\u0648\u0643", "mymsgs_show_tiktok")],
       [f(s.linkVideoEnabled, "تنزيل فيديوهات من رابط", "mymsgs_show_linkvid")],
       [f(s.songEnabled, "\uD83C\uDFB5 \u0623\u063A\u0627\u0646\u064A", "mymsgs_show_song"), f(s.filmEnabled, "\uD83C\uDFA5 \u062A\u0646\u0632\u064A\u0644 \u0641\u064A\u0644\u0645", "mymsgs_show_film")],
@@ -340,6 +344,7 @@ export function myMsgsFeatureSubMenu(s, feature) {
     gm:       { en: s.exportMembersEnabled,       cmd: s.exportMembersCmd, name: "\uD83D\uDC65 \u062A\u0635\u062F\u064A\u0631 \u0627\u0644\u0623\u0639\u0636\u0627\u0621",    tog: "mymsgs_toggle_gm",        edit: "mymsgs_edit_gm_cmd" },
     copy:     { en: s.copyEnabled,               cmd: s.copyCmd,          name: "\uD83D\uDD04 \u0625\u0639\u0627\u062F\u0629 \u0627\u0644\u0625\u0631\u0633\u0627\u0644",    tog: "mymsgs_toggle_copy",      edit: "mymsgs_edit_copy_cmd" },
     img:      { en: s.imgEnabled,                cmd: s.imgCmd,           name: "\uD83D\uDDBC\uFE0F \u0628\u062D\u062B \u0635\u0648\u0631",          tog: "mymsgs_toggle_img",       edit: "mymsgs_edit_img_cmd" },
+    removebg: { en: s.removeBgEnabled !== false, cmd: s.removeBgCmd || "/قص", name: "✂️ إزالة خلفية الصورة", tog: "mymsgs_toggle_removebg", edit: "mymsgs_edit_removebg_cmd" },
     vid:      { en: s.vidEnabled,                cmd: s.vidCmd,           name: "\uD83C\uDFAC \u0641\u064A\u062F\u064A\u0648 \u064A\u0648\u062A\u064A\u0648\u0628",     tog: "mymsgs_toggle_vid",       edit: "mymsgs_edit_vid_cmd" },
     linkvid:  { en: s.linkVideoEnabled,           cmd: null,                name: "تنزيل فيديوهات من رابط",                       tog: "mymsgs_toggle_linkvid",    edit: null },
     tiktok:   { en: s.tiktokEnabled,             cmd: s.tiktokCmd,        name: "\uD83D\uDCF1 \u062A\u064A\u0643 \u062A\u0648\u0643",           tog: "mymsgs_toggle_tiktok",    edit: "mymsgs_edit_tiktok_cmd" },
@@ -364,6 +369,7 @@ export function myMsgsFeatureSubMenu(s, feature) {
   if (!feat) return null;
   // [FIX-DESCRIPTIONS] وصف تفصيلي يوضح كيفية استخدام كل ميزة
   const _featureDescs = {
+    removebg: `رد على صورة بالأمر ${feat.cmd} أو أرسل الصورة مع الأمر في وصفها. تُرسل الصورة لخدمة Pixelcut الخارجية وتعود كملف PNG شفاف.`,
     pic:      `\uD83D\uDCCC *\u0637\u0631\u064A\u0642\u0629 \u0627\u0644\u0627\u0633\u062A\u062E\u062F\u0627\u0645:*\n\u2022 \`${feat.cmd} me\` \u0641\u064A \u0627\u0644\u0645\u062D\u0627\u062F\u062B\u0629 \u064A\u062C\u0639\u0644 \u0635\u0648\u0631\u0629 \u0627\u0644\u0645\u062D\u0627\u062F\u062B\u0629 \u0635\u0648\u0631\u0629\u064B \u0644\u062D\u0633\u0627\u0628\u0643 \u0627\u0644\u0645\u0631\u062A\u0628\u0637.\n\u2022 \`${feat.cmd} +966501234567 me\` \u064A\u062C\u0639\u0644 \u0635\u0648\u0631\u0629 \u0647\u0630\u0627 \u0627\u0644\u0631\u0642\u0645 \u0635\u0648\u0631\u0629\u064B \u0644\u062D\u0633\u0627\u0628\u0643.\n\u2022 \u064A\u0645\u0643\u0646 \u0623\u064A\u0636\u0627\u064B \u062C\u0644\u0628 \u0635\u0648\u0631\u0629 \u0634\u062E\u0635 \u0628\u0625\u0631\u0633\u0627\u0644 \u0631\u0642\u0645\u0647 \u0628\u062F\u0648\u0646 \`me\`.`,
     gm:       `\uD83D\uDCCC *\u0643\u064A\u0641 \u062A\u0633\u062A\u062E\u062F\u0645\u0647\u0627:*\n\u0623\u0631\u0633\u0644 \`${feat.cmd}\` \u062F\u0627\u062E\u0644 \u0645\u062C\u0645\u0648\u0639\u0629 \u0644\u062A\u0635\u062F\u064A\u0631 \u0623\u0631\u0642\u0627\u0645 \u062C\u0645\u064A\u0639 \u0627\u0644\u0623\u0639\u0636\u0627\u0621 \u0643\u0645\u0644\u0641 \u0646\u0635\u064A.`,
     copy:     `\uD83D\uDCCC *\u0643\u064A\u0641 \u062A\u0633\u062A\u062E\u062F\u0645\u0647\u0627:*\n\u0631\u062F \u0639\u0644\u0649 \u0623\u064A \u0631\u0633\u0627\u0644\u0629 \u0628\u0640 \`${feat.cmd}\` \u0644\u0625\u0639\u0627\u062F\u0629 \u0625\u0631\u0633\u0627\u0644\u0647\u0627 \u0628\u062F\u0648\u0646 \u0639\u0644\u0627\u0645\u0629 "\u0645\u062D\u0648\u0651\u0644\u0629 \u0645\u0646".`,
@@ -481,6 +487,11 @@ export async function handleMyMsgsCallback(bot2, chatId, userId, data) {
     const ns = saveMyMsgsSettings(userId, { copyEnabled: !s.copyEnabled });
     await bot2.sendMessage(chatId, ns.copyEnabled ? `\u2705 \u0625\u0639\u0627\u062F\u0629 \u0627\u0644\u0625\u0631\u0633\u0627\u0644 \u0645\u0641\u0639\u0651\u0644\u0629 \u2014 \u0631\u062F\u0651 \u0639\u0644\u0649 \u0631\u0633\u0627\u0644\u0629 \u0628\u0640 *${ns.copyCmd}*` : `\u274C \u0625\u0639\u0627\u062F\u0629 \u0627\u0644\u0625\u0631\u0633\u0627\u0644 \u0645\u0639\u0637\u0651\u0644\u0629`, { parse_mode: "Markdown", reply_markup: ((() => { try { const sub = myMsgsFeatureSubMenu(ns, "copy"); return sub ? sub.keyboard : myMsgsMenuKeyboard(ns); } catch(e) { return myMsgsMenuKeyboard(ns); } })()) }); return;
   }
+  if (data === "mymsgs_toggle_removebg") {
+    const ns=saveMyMsgsSettings(userId,{removeBgEnabled: s.removeBgEnabled === false});
+    const sub=myMsgsFeatureSubMenu(ns,"removebg");
+    await bot2.sendMessage(chatId,sub.text,{parse_mode:"Markdown",reply_markup:sub.keyboard});return;
+  }
   if (data === "mymsgs_toggle_img") {
     const ns = saveMyMsgsSettings(userId, { imgEnabled: !s.imgEnabled });
     await bot2.sendMessage(chatId, ns.imgEnabled ? `\u2705 \u0628\u062D\u062B \u0627\u0644\u0635\u0648\u0631 \u0645\u0641\u0639\u0651\u0644 \u2014 \u0645\u062B\u0627\u0644: *${ns.imgCmd} \u0643\u0644\u0628 5*` : `\u274C \u0628\u062D\u062B \u0627\u0644\u0635\u0648\u0631 \u0645\u0639\u0637\u0651\u0644`, { parse_mode: "Markdown", reply_markup: ((() => { try { const sub = myMsgsFeatureSubMenu(ns, "img"); return sub ? sub.keyboard : myMsgsMenuKeyboard(ns); } catch(e) { return myMsgsMenuKeyboard(ns); } })()) }); return;
@@ -553,6 +564,7 @@ export async function handleMyMsgsCallback(bot2, chatId, userId, data) {
     await bot2.sendMessage(chatId, ns.locateEnabled ? `\u2705 \u062A\u062A\u0628\u0639 \u0627\u0644\u0645\u0648\u0642\u0639 \u0645\u0641\u0639\u0651\u0644 \u2014 \u0627\u0644\u0623\u0645\u0631: *${ns.locateCmd || "/locate"}*` : `\u274C \u062A\u062A\u0628\u0639 \u0627\u0644\u0645\u0648\u0642\u0639 \u0645\u0639\u0637\u0651\u0644`, { parse_mode: "Markdown", reply_markup: ((() => { try { const sub = myMsgsFeatureSubMenu(ns, "locate"); return sub ? sub.keyboard : myMsgsMenuKeyboard(ns); } catch(e) { return myMsgsMenuKeyboard(ns); } })()) }); return;
   }
   const editMap = {
+    mymsgs_edit_removebg_cmd: {field:"removeBgCmd",label:"إزالة خلفية الصورة",example:"/قص"},
     mymsgs_edit_pic_cmd:      { field: "profilePicCmd",    label: "\u0635\u0648\u0631\u0629 \u0627\u0644\u0628\u0631\u0648\u0641\u0627\u064A\u0644",    example: "/pic \u0623\u0648 \u0635\u0648\u0631\u0629" },
     mymsgs_edit_gm_cmd:       { field: "exportMembersCmd", label: "\u062A\u0635\u062F\u064A\u0631 \u0627\u0644\u0623\u0639\u0636\u0627\u0621", example: "/members \u0623\u0648 \u0623\u0639\u0636\u0627\u0621" },
     mymsgs_edit_copy_cmd:     { field: "copyCmd",          label: "\u0625\u0639\u0627\u062F\u0629 \u0627\u0644\u0625\u0631\u0633\u0627\u0644",    example: "/resend \u0623\u0648 \u0643\u0631\u0631" },
@@ -745,6 +757,7 @@ export async function handleMyMsgsTextInput(bot2, chatId, userId, text, state) {
   const ns = saveMyMsgsSettings(userId, { [field]: cmd });
   clearState2(userId);
   const labels = {
+    removeBgCmd: "إزالة خلفية الصورة",
     profilePicCmd: "\u0635\u0648\u0631\u0629 \u0627\u0644\u0628\u0631\u0648\u0641\u0627\u064A\u0644",
     exportMembersCmd: "\u062A\u0635\u062F\u064A\u0631 \u0627\u0644\u0623\u0639\u0636\u0627\u0621",
     copyCmd: "\u0625\u0639\u0627\u062F\u0629 \u0627\u0644\u0625\u0631\u0633\u0627\u0644",

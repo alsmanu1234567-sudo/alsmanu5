@@ -295251,54 +295251,43 @@ ${fullText}${warnSuffix}` }, { quoted: msg });
           }
           return; // [DISPATCH-FIX]
         }
-        if (myS.imgEnabled && trimmed.startsWith(myS.imgCmd + " ")) {
-          const rest = trimmed.slice(myS.imgCmd.length).trim();
-          const parts = rest.split(/\s+/);
-          const countStr = parts[parts.length - 1];
-          const count = /^\d+$/.test(countStr) ? Math.min(Math.max(parseInt(countStr), 1), 20) : 3;
-          const query = /^\d+$/.test(countStr) ? parts.slice(0, -1).join(" ") : rest;
-          if (!query) {
-            try {
-              await activeSock.sendMessage(jid, { text: `\u26A0\uFE0F \u0645\u062B\u0627\u0644: ${myS.imgCmd} \u0643\u0644\u0628 5` });
-            } catch {
-            }
-          } else {
-            try {
-              await activeSock.sendMessage(jid, { text: `\u{1F50D} \u0623\u0628\u062D\u062B \u0639\u0646 "${query}" (${count} \u0635\u0648\u0631\u0629)...` });
-            } catch {
-            }
-            try {
-              const { searchImages: searchImages2 } = await Promise.resolve().then(() => (init_search_utils(), search_utils_exports));
-              const urls = await searchImages2(query, count);
-              if (urls.length === 0) {
-                await activeSock.sendMessage(jid, { text: `\u274C \u0644\u0645 \u0623\u062C\u062F \u0646\u062A\u0627\u0626\u062C \u0644\u0640 "${query}"` });
-              } else {
-                let sent = 0;
-                for (const url of urls) {
-                  try {
-                    const r = await fetch(url, { signal: AbortSignal.timeout(1e4) });
-                    if (!r.ok) return; // [DISPATCH-FIX]
-                    const buf = Buffer.from(await r.arrayBuffer());
-                    if (buf.length < 500) return; // [DISPATCH-FIX]
-                    await activeSock.sendMessage(jid, { image: buf });
-                    sent++;
-                    await new Promise((r2) => setTimeout(r2, 600));
-                  } catch {
-                  }
-                }
-                if (sent === 0) {
-                  await activeSock.sendMessage(jid, { text: `\u274C \u062A\u0639\u0630\u0651\u0631 \u062A\u062D\u0645\u064A\u0644 \u0627\u0644\u0635\u0648\u0631` });
-                }
-              }
-            } catch (e) {
-              logger.warn({ e }, "[/img] failed");
-              try {
-                await activeSock.sendMessage(jid, { text: "\u26A0\uFE0F \u062A\u0639\u0630\u0651\u0631 \u0627\u0644\u0628\u062D\u062B \u0639\u0646 \u0627\u0644\u0635\u0648\u0631" });
-              } catch {
-              }
-            }
-          }
-          return; // [DISPATCH-FIX]
+        if (myS.removeBgEnabled !== false && trimmed === (myS.removeBgCmd || "/قص")) {
+          try {
+            const tools=await import("../services/image-tools.mjs");
+            const image=tools.extractQuotedImage(msg);
+            if(!image){await activeSock.sendMessage(jid,{text:`✂️ رد على صورة عادية بالأمر ${myS.removeBgCmd || "/قص"} أو أرسل صورة مع الأمر في وصفها. الصورة تُرسل لخدمة Pixelcut الخارجية.`});return;}
+            const len=Number(image.message.imageMessage.fileLength||0);if(len>10*1024*1024)throw Error('الصورة أكبر من 10 ميجابايت');
+            await activeSock.sendMessage(jid,{text:'✂️ جارٍ إزالة الخلفية عبر خدمة Pixelcut الخارجية…'});
+            const {downloadMediaMessage}=await Promise.resolve().then(()=>(init_lib6(),lib_exports4));
+            const buffer=await downloadMediaMessage(image,'buffer',{}, {logger:baileysLogger,reuploadRequest:activeSock.updateMediaMessage});
+            const result=await tools.removeBackground(buffer);
+            await activeSock.sendMessage(jid,{document:result,mimetype:'image/png',fileName:'no-background.png',caption:'✂️ الصورة بصيغة PNG للمحافظة على الخلفية الشفافة.'},{quoted:msg});
+          } catch(e) {logger.warn({error:e?.message},'[remove-bg] failed');await activeSock.sendMessage(jid,{text:'❌ تعذر إزالة الخلفية: '+String(e?.message||'خطأ بالخدمة').slice(0,200)}).catch(()=>{});}
+          return;
+        }
+        if (myS.imgEnabled && (trimmed === myS.imgCmd || trimmed.startsWith(myS.imgCmd + " "))) {
+          try {
+            const tools=await import("../services/image-tools.mjs");
+            const rest=trimmed.slice(myS.imgCmd.length).trim().replace(/[٠-٩]/g,c=>String('٠١٢٣٤٥٦٧٨٩'.indexOf(c)));
+            const parts=rest.split(/\s+/).filter(Boolean), tail=parts.at(-1), hasCount=/^\d+$/.test(tail||'');
+            const count=hasCount?Math.min(Math.max(Number(tail),1),20):3;
+            const query=(hasCount?parts.slice(0,-1):parts).join(' ');
+            const image=tools.extractQuotedImage(msg);
+            let urls;
+            if(image&&!query){
+              if(Number(image.message.imageMessage.fileLength||0)>10*1024*1024)throw Error('الصورة أكبر من 10 ميجابايت');
+              await activeSock.sendMessage(jid,{text:'🔍 أبحث عن صور مشابهة عبر Google Lens. الصورة تُرسل للخدمة الخارجية…'});
+              const {downloadMediaMessage}=await Promise.resolve().then(()=>(init_lib6(),lib_exports4));
+              const buffer=await downloadMediaMessage(image,'buffer',{}, {logger:baileysLogger,reuploadRequest:activeSock.updateMediaMessage});
+              urls=await tools.searchSimilarImages(buffer);
+            }else if(query){
+              await activeSock.sendMessage(jid,{text:`🔍 أبحث عن "${query}" (${count} صورة)...`});
+              urls=await tools.searchImageCandidates(query,{target:Math.min(80,Math.max(30,count*4))});
+            }else{await activeSock.sendMessage(jid,{text:`⚠️ مثال: ${myS.imgCmd} قطة 5، أو رد على صورة بـ ${myS.imgCmd} 5 للبحث عن صور مشابهة.`});return;}
+            const result=await tools.sendImageCandidates({sock:activeSock,jid,urls,count});
+            if(result.sent<count)await activeSock.sendMessage(jid,{text:`⚠️ تم إرسال ${result.sent} من ${count} صور مطلوبة؛ تعذّر الحصول على عدد كافٍ من النتائج الصالحة.`});
+          }catch(e){logger.warn({error:e?.message},'[/img] failed');await activeSock.sendMessage(jid,{text:'⚠️ تعذر البحث عن الصور: '+String(e?.message||'خطأ في الخدمة').slice(0,200)}).catch(()=>{});}
+          return;
         }
         if (myS.codEnabled !== false && trimmed.startsWith((myS.codCmd || "/cod") + " ")) {
           const codArg = trimmed.slice((myS.codCmd || "/cod").length).trim();

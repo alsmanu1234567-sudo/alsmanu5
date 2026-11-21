@@ -84,6 +84,7 @@ export function registerWebApp(app, { replyService, aiService, myMsgsService, si
     res.end(HTML_PAGE.replace('<div class="hdr">', `<div class="hdr">\n  ${navigation}`));
   });
 
+  app.get("/steam-games/:name", async (req,res) => {res.setHeader("Cache-Control","no-store");res.setHeader("Referrer-Policy","no-referrer");try{const {loadSteamGame}=await import("../services/steam-games.mjs");res.type("html").send(await loadSteamGame(req.params.name));}catch{res.status(404).send("اللعبة غير موجودة");}});
   app.get("/ludo", async (_req, res) => { res.setHeader("Content-Type", "text/html; charset=utf-8"); res.setHeader("Cache-Control", "no-store"); res.setHeader("Referrer-Policy", "no-referrer"); try {res.end(await loadLudoHtml());} catch {res.status(500).end("تعذر تحميل اللعبة");} });
   // The embedded game may be hosted by WhatsApp at an opaque origin. Game/seat
   // capability tokens, not browser cookies, authorize these isolated endpoints.
